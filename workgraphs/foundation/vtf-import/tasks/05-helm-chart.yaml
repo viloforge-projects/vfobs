@@ -1,0 +1,31 @@
+id: t_Z9bN2m
+name: "vfobs Helm chart — Deployment + Service + ESO ExternalSecret + ServiceMonitor"
+description: |
+  Helm chart for the vfobs service in charts/vfobs/. Deployment
+  with health probes hitting T3 endpoints; ClusterIP Service on
+  8080; ServiceAccount; ESO ExternalSecret for DATABASE_URL +
+  INGEST_TOKEN from Vault; optional ServiceMonitor (gated by
+  monitoring.enabled). Chart versions atomically with the service
+  per OIQ1.
+
+  Full spec: viloforge-projects/vfobs/workgraphs/foundation/tasks/05-helm-chart.md
+  Plan: §D7
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-foundation/t5-helm-chart 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T5-1 — charts/vfobs/Chart.yaml: name vfobs, apiVersion v2, version 0.1.0, appVersion '0.0.1', maintainers + description."
+  - "AC-T5-2 — charts/vfobs/values.yaml exposes image.{repository,tag,pullPolicy}, replicaCount: 1, resources, env, database.dsnSecret.{name,key}, ingestToken.secret.{name,key}, eso.{enabled,secretStore.name,refreshInterval}, monitoring.enabled: false."
+  - "AC-T5-3 — templates/deployment.yaml: Deployment with vfobs.fullname, container image with .Values.image.tag | default .Chart.AppVersion, env from VFOBS_DATABASE_URL + VFOBS_INGEST_TOKEN secretKeyRefs, liveness/readiness probes hitting /healthz and /readyz (initialDelaySeconds 5, periodSeconds 10), resources from values, port 8080."
+  - "AC-T5-4 — templates/service.yaml: ClusterIP Service exposing port 8080, selector matches Deployment."
+  - "AC-T5-5 — templates/externalsecret.yaml: ExternalSecret (external-secrets.io/v1beta1) rendered iff eso.enabled. Pulls database-dsn + ingest-token from the named SecretStore into the k8s Secret the Deployment references."
+  - "AC-T5-6 — templates/servicemonitor.yaml: Prometheus-Operator ServiceMonitor rendered iff monitoring.enabled (default off in dev)."
+  - "AC-T5-7 — Integration: tests/integration/test_helm_render.py runs helm template against values-dev.yaml fixture, asserts rendered YAML contains Deployment+Service+ExternalSecret and NO ServiceMonitor. Second call with values-monitoring.yaml asserts ServiceMonitor renders."
+  - "AC-T5-8 — Integration: same test runs helm lint, asserts exit 0."
+  - "AC-T5-9 — templates/NOTES.txt prints port-forward + /healthz verification instructions."
+  - "AC-T5-10 — Branch wg-vfobs-foundation/t5-helm-chart is pushed to viloforge/vfobs and a PR is open."

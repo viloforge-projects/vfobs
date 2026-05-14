@@ -1,0 +1,37 @@
+id: t_W4kF6h
+name: "POST /events — Chain of Responsibility ingest pipeline + Strategy-based auth"
+description: |
+  HTTP write endpoint. Accepts a discriminated union of all 17
+  event types (Pydantic Discriminator on type field), validates,
+  runs the Enricher → Storer Chain of Responsibility pipeline,
+  persists via EventRepository (T2), returns 201 + {id: <int>}.
+  Auth via IngestAuth Strategy (StaticTokenAuth impl in v1;
+  pluggable for per-pod tokens or mTLS in v2).
+
+  Note: Enricher is a v1 no-op pass-through (verifier F1 patch).
+  Server-time audit lives in the events.created_at Postgres
+  DEFAULT column (T0), not in event.data. See spec body's
+  "Note on server-time audit".
+
+  Full spec: viloforge-projects/vfobs/workgraphs/foundation/tasks/04-write-api.md
+  Plan: §D6
+  Patterns: Chain of Responsibility, Strategy
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-foundation/t4-write-api 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T4-1 — src/vfobs/api/auth.py defines IngestAuth(ABC) with verify(token: str | None) -> str (raises HTTPException(401) on failure). StaticTokenAuth(IngestAuth) reads the canonical token from Settings, compares constant-time via hmac.compare_digest. Strategy pattern."
+  - "AC-T4-2 — src/vfobs/api/events.py POST /events: requires Bearer token (auth dependency); accepts discriminated union of v1 event types via Pydantic Discriminator on type; runs Enricher → Storer pipeline; returns 201 + {id: <int>} on success; 422 on bad shape; 500 on storage failure (do NOT swallow)."
+  - "AC-T4-3 — Pipeline factored as named async callables in src/vfobs/api/events.py: Enricher (CoR node 1) and Storer (CoR node 2). Composed in _ingest_pipeline() and invoked from the POST handler. Validator is implicit (FastAPI handles it)."
+  - "AC-T4-4 — Enricher is a v1 no-op pass-through — returns the event unchanged. CoR pipeline shape preserved as extension point for v2 augmentations. Server-time audit supplied by Postgres events.created_at DEFAULT (T0); no Python-side enrichment in v1. Signature fixed: (event, context) -> Event."
+  - "AC-T4-5 — Storer calls EventRepository.store(event) (resolved from request.app.state.event_repo, set in create_app lifespan from T3) and returns the event annotated with context['id']."
+  - "AC-T4-6 — Unit: tests/unit/test_post_events.py covers valid POST → 201 + id=1, wrong token → 401, missing token → 401, bad event shape → 422, second valid POST → id=2, Enricher invoked and returns event unchanged (assert pre/post equality)."
+  - "AC-T4-7 — Integration: tests/integration/test_post_events_live.py against disposable Postgres + PostgresEventRepository, POSTs real event over HTTP via httpx.AsyncClient, asserts 201 + id, queries Postgres to verify event is in vfobs.events with row created_at within 5s of POST time (server-time audit from T0 DEFAULT)."
+  - "AC-T4-8 — Contract: tests/contract/test_post_events_contract.py posts one event of each of the 17 types using EventFactory builders. Each 201s with a monotonically increasing id. Drift between T1 types and what the write API accepts is caught here."
+  - "AC-T4-9 — Pipeline ordering test: a stub Enricher substitute records its call order, proves Enricher runs strictly before Storer; an exception in Enricher short-circuits the chain (Storer not called). Unit-level."
+  - "AC-T4-10 — Branch wg-vfobs-foundation/t4-write-api is pushed to viloforge/vfobs and a PR is open."

@@ -1,0 +1,29 @@
+id: t_T8xY1c
+name: "FastAPI app factory + Settings + health/metrics endpoints + request-logging middleware"
+description: |
+  FastAPI app skeleton: create_app() factory, pydantic-settings
+  Settings (Singleton), health endpoints (/healthz, /readyz),
+  Prometheus /metrics, and request-logging middleware (Decorator
+  pattern with request_id ContextVar).
+
+  Full spec: viloforge-projects/vfobs/workgraphs/foundation/tasks/03-fastapi-skeleton.md
+  Plan: §D5
+  Patterns: Singleton, Decorator, App Factory
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-foundation/t3-fastapi-skeleton 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T3-1 — src/vfobs/config.py defines Settings(BaseSettings) (pydantic-settings) with database_url: PostgresDsn, ingest_token: SecretStr, log_level: str = 'INFO', service_name: str = 'vfobs'. Env-prefix VFOBS_. get_settings() lru_cache-wrapped factory (Singleton)."
+  - "AC-T3-2 — src/vfobs/main.py defines create_app(settings: Settings | None = None) -> FastAPI. App factory. Mounts health, metrics, request-logging middleware."
+  - "AC-T3-3 — src/vfobs/api/health.py: GET /healthz returns {status: ok} 200 (liveness, no DB touch). GET /readyz runs SELECT 1 against the DB engine from app.state; 200 + {status: ok, db: ok} on success, 503 + {status: not_ready, db: <error class>} on failure."
+  - "AC-T3-4 — src/vfobs/api/metrics.py exposes GET /metrics via prometheus_client.make_asgi_app(). Registers vfobs_http_requests_total (Counter, method+path+status) and vfobs_http_request_duration_seconds (Histogram, method+path) in src/vfobs/observability/metrics_registry.py."
+  - "AC-T3-5 — src/vfobs/middleware/logging.py RequestLoggingMiddleware: generates request_id UUID, attaches to contextvars.ContextVar so logs pick it up, increments Counter (method+path+status), observes Histogram (duration), emits INFO log with method/path/status/duration_ms/request_id."
+  - "AC-T3-6 — Unit: tests/unit/test_health.py constructs app via create_app(settings=...) with mocked engine. /readyz tests success + failure stubs. /healthz test asserts no DB touch."
+  - "AC-T3-7 — Unit: tests/unit/test_middleware_logging.py asserts Counter incremented, Histogram observed, log line emitted (via caplog) on each request. Validates contextvars under asyncio."
+  - "AC-T3-8 — Integration: tests/integration/test_app_lifecycle.py spins app under httpx.AsyncClient against disposable Postgres (T0 fixture pattern), hits /healthz, /readyz, /metrics, asserts shapes + content-types."
+  - "AC-T3-9 — Branch wg-vfobs-foundation/t3-fastapi-skeleton is pushed to viloforge/vfobs and a PR is open."

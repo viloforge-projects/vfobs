@@ -1,0 +1,29 @@
+id: t_M7sV9w
+name: "vfobs event types — base + 6 namespaces + Factory + JSON Schema export"
+description: |
+  Define the typed event hierarchy: Event base class, six event
+  namespaces (workgraph, task, harness, gate, judge, anomaly)
+  with 17 concrete event classes, EventFactory for typed
+  construction, and a JSON Schema exporter for contract testing
+  (NFR1 schema versioning).
+
+  Full spec: viloforge-projects/vfobs/workgraphs/foundation/tasks/01-event-types.md
+  Plan: §D3
+  Patterns: Factory + Specification (events as data)
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-foundation/t1-event-types 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T1-1 — src/vfobs/events/base.py defines Event (frozen Pydantic BaseModel), EventNamespace enum (WORKGRAPH/TASK/HARNESS/GATE/JUDGE/ANOMALY), Classification enum (PUBLIC/INTERNAL/SECRET). Event base fields per plan.md §D3."
+  - "AC-T1-2 — Six namespace modules in src/vfobs/events/namespaces/ define the 17 concrete event classes (workgraph.py: 3, task.py: 4, harness.py: 3, gate.py: 3, judge.py: 3, anomaly.py: 1). Each carries a typed data: <NamespaceVerbData> sub-model with the fields enumerated in the spec body."
+  - "AC-T1-3 — src/vfobs/events/factory.py defines EventFactory with one classmethod per event class. Each returns the typed event with v=1, correct type literal, and timestamp default of datetime.now(UTC) if not supplied. Public construction surface — consumers MUST use the factory."
+  - "AC-T1-4 — src/vfobs/events/schema.py exports dump_event_schemas() → dict[str, dict] mapping event_type → JSON Schema (Pydantic v2 model_json_schema()). Output is stable JSON (sorted keys), suitable for committing to a contract-test fixture."
+  - "AC-T1-5 — Unit: tests/unit/test_events.py covers construction + validation of each event type via the factory (success + failure: wrong type literal, missing required, bad classification, bad type namespace prefix)."
+  - "AC-T1-6 — Contract: tests/contract/test_event_schema.py compares dump_event_schemas() against tests/fixtures/event_schemas.v1.json. Test fails on any diff. Schema v1 is a public contract per NFR1; fixture is updated only with intentional schema bumps."
+  - "AC-T1-7 — Adding a new event type follows the documented pattern (extend namespace module + add factory method + update v1 schema fixture). Extension verified by test_add_new_event_type_follows_pattern."
+  - "AC-T1-8 — Branch wg-vfobs-foundation/t1-event-types is pushed to viloforge/vfobs and a PR is open."

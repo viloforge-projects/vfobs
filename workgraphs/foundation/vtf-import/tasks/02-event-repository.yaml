@@ -1,0 +1,29 @@
+id: t_R3jL5n
+name: "EventRepository interface + PostgresEventRepository + InMemoryEventRepository"
+description: |
+  Storage abstraction (Repository + DIP). One abstract base
+  EventRepository (async-only). Two impls: PostgresEventRepository
+  (production; SQLAlchemy + asyncpg; time-partitioned events table
+  from T0; serializes Event types from T1) and InMemoryEventRepository
+  (test double — real LSP substitute, not a mock).
+
+  Full spec: viloforge-projects/vfobs/workgraphs/foundation/tasks/02-event-repository.md
+  Plan: §D4
+  Patterns: Repository, DIP, LSP
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-foundation/t2-event-repository 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T2-1 — src/vfobs/repositories/event_repository.py defines abstract EventRepository(ABC) with async methods store(event: Event) -> int and get_by_id(event_id: int) -> Event | None. Async-only per plan.md §D4."
+  - "AC-T2-2 — PostgresEventRepository(EventRepository) implements both methods. store uses INSERT … RETURNING id; serializes via _event_to_row(event) → dict. get_by_id SELECTs by id and reconstructs the typed Event via the EVENT_TYPE_REGISTRY discriminated dispatch."
+  - "AC-T2-3 — InMemoryEventRepository(EventRepository) implements both methods against list[Event] + itertools.count. Used by unit tests in T2 and downstream (T4 unit tests, future WG2-5 unit tests)."
+  - "AC-T2-4 — Unit: tests/unit/test_event_repository.py exercises InMemoryEventRepository — store returns monotonic ids starting at 1, get_by_id round-trips, missing id returns None, abstract base raises when instantiated directly."
+  - "AC-T2-5 — Integration: tests/integration/test_postgres_event_repository.py runs against disposable Postgres + T0 migration, verifies store+get_by_id round-trip preserves all base fields and data JSONB (deep-equal), id is positive and monotonically increasing, and server-default created_at is populated within 5s of now."
+  - "AC-T2-6 — Integration: same test verifies that storing 17 events across three event types yields three distinct id ranges from the shared sequence (single-table design) and get_by_id returns each correctly."
+  - "AC-T2-7 — Both repos honor the EventRepository contract. A parametrized test runs the same behavioral check against both — LSP enforced (engineering principles §3)."
+  - "AC-T2-8 — Branch wg-vfobs-foundation/t2-event-repository is pushed to viloforge/vfobs and a PR is open."

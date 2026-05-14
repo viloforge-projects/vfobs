@@ -1,0 +1,22 @@
+tasks:
+  - id: t_K2pQ4r
+    depends_on: []
+  - id: t_M7sV9w
+    depends_on: []
+  - id: t_T8xY1c
+    depends_on: []
+  - id: t_R3jL5n
+    depends_on:
+      - t_K2pQ4r
+      - t_M7sV9w
+  - id: t_W4kF6h
+    depends_on:
+      - t_M7sV9w
+      - t_R3jL5n
+      - t_T8xY1c
+  - id: t_Z9bN2m
+    depends_on:
+      - t_W4kF6h
+  - id: t_A5dP7s
+    depends_on:
+      - t_Z9bN2m

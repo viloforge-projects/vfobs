@@ -1,0 +1,27 @@
+id: t_A5dP7s
+name: "Scenario test — vfobs+Postgres in kind, event roundtrip end-to-end"
+description: |
+  End-to-end scenario test that proves the deployed shape works:
+  kind cluster, bitnami/postgresql (pinned), build+load vfobs
+  image, deploy via T5 chart, POST a real event over the wire,
+  read it back from Postgres directly, assert match.
+
+  Full spec: viloforge-projects/vfobs/workgraphs/foundation/tasks/06-scenario-roundtrip.md
+  Plan: §D8
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-foundation/t6-scenario-roundtrip 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T6-1 — Makefile gains test-scenario (runs pytest -m scenario tests/scenario/), scenario-prepare (kind bootstrap), scenario-teardown (kind delete). test-scenario depends on scenario-prepare unless SKIP_PREPARE=1."
+  - "AC-T6-2 — scripts/scenario/prepare.sh: verifies kind/helm/kubectl/docker installed; kind create cluster (idempotent with KEEP_CLUSTER=1); deploys bitnami/postgresql (pinned version) to vfobs-test ns with vfobs_app user; runs alembic upgrade head against it; docker build + kind load vfobs image; helm install vfobs via values-scenario.yaml (ESO disabled, literal secret); waits for pod readiness ≤120s."
+  - "AC-T6-3 — Dockerfile at repo root: multi-stage build; final stage starts uvicorn vfobs.main:create_app --factory --host 0.0.0.0 --port 8080."
+  - "AC-T6-4 — tests/scenario/test_event_roundtrip.py test_post_event_persists_and_retrievable: port-forwards vfobs + postgres; POSTs TaskStateChanged event with test token → 201 + id; reads SELECT * FROM vfobs.events WHERE id = … via psycopg as vfobs_app; asserts base fields match, data JSONB deep-equal, row created_at within 5s of POST (server-time audit from T0 DEFAULT)."
+  - "AC-T6-5 — tests/scenario/test_event_roundtrip.py test_health_endpoints_reachable_through_chart: GET /healthz and /readyz via port-forward, assert 200 + expected body shapes."
+  - "AC-T6-6 — tests/scenario/test_event_roundtrip.py test_unauthorized_post_rejected: no Authorization → 401; wrong token → 401."
+  - "AC-T6-7 — docs/scenario-test-runbook.md explains operator flow (scenario-prepare, test-scenario, scenario-teardown), KEEP_CLUSTER=1 for iteration, troubleshooting tips, and explicit note that the scenario is NOT wired to CI in WG1 (manual operator run per the plan's CI deferral)."
+  - "AC-T6-8 — Branch wg-vfobs-foundation/t6-scenario-roundtrip is pushed to viloforge/vfobs and a PR is open."

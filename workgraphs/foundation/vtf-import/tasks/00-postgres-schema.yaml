@@ -1,0 +1,33 @@
+id: t_K2pQ4r
+name: "vfobs Postgres schema bootstrap — vfobs schema, partitioned events table, DB user"
+description: |
+  Bootstrap the vfobs Postgres schema in the shared vtaskforge
+  Postgres instance (OIQ2 resolution). Creates schema `vfobs`,
+  the partitioned `vfobs.events` table per plan.md §D2, the
+  first three monthly partitions, indexes, and the dedicated
+  `vfobs_app` role with minimum-necessary grants (SELECT+INSERT
+  only). Migration applied via Alembic.
+
+  Full spec (authoritative — read this before claiming):
+  viloforge-projects/vfobs/workgraphs/foundation/tasks/00-postgres-schema.md
+
+  Plan: viloforge-projects/vfobs/workgraphs/foundation/plan.md (§D1, D2)
+  Engineering principles:
+  viloforge-platform/docs/engineering-principles.md v1.0
+  Methodology: vtf-methodologies/executor/bugfix.md R1-R8
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-foundation/t0-postgres-schema 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T0-1 — alembic configured at repo root (alembic.ini, alembic/env.py, alembic/versions/); env.py reads DB URL from vfobs.config.Settings.database_url, does NOT hardcode."
+  - "AC-T0-2 — Migration alembic/versions/0001_initial_schema.py creates schema vfobs, partitioned events table PARTITION BY RANGE (timestamp) per plan.md §D2, first three monthly partitions, all indexes (events_workgraph_id_id_idx, events_task_id_id_idx, events_type_id_idx, events_timestamp_idx, events_org_cluster_idx)."
+  - "AC-T0-3 — Migration also creates DB role vfobs_app (LOGIN, password externalised) with grants USAGE ON SCHEMA vfobs + SELECT, INSERT ON ALL TABLES IN SCHEMA vfobs + USAGE, SELECT ON ALL SEQUENCES IN SCHEMA vfobs. No grants to public. Default privileges set for future tables/sequences."
+  - "AC-T0-4 — Migration is idempotent at the role-creation step via DO $$ BEGIN IF NOT EXISTS … THEN CREATE ROLE … END IF; END $$;. Re-running alembic upgrade head after first apply is a no-op (alembic sees head already applied)."
+  - "AC-T0-5 — Integration: tests/integration/test_db_bootstrap.py spins disposable Postgres (pytest-postgresql or testcontainers), runs alembic upgrade head, asserts schema + table + role + indexes exist via information_schema. Re-runs upgrade and asserts no errors and no duplicates (idempotency)."
+  - "AC-T0-6 — vfobs_app role has exactly the grants in AC-T0-3 and no more. Integration test asserts via information_schema.role_table_grants — privileges == {SELECT, INSERT}."
+  - "AC-T0-7 — Branch wg-vfobs-foundation/t0-postgres-schema is pushed to viloforge/vfobs and a PR is open. (Externally-grounded per R1; verified by the test_command gate.)"
