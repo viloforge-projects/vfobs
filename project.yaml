@@ -1,0 +1,32 @@
+id: vfobs
+name: vfobs (ViloForge Pipeline Observability)
+description: |
+  API-first observability service for the ViloForge AI agent pipeline:
+  event ingestion, SSE streams, anomaly detection (stuck-task
+  detector in v1), cost rollups, and workgraph DAG views. SDK-as-
+  boundary (NFR5). Sits alongside vtaskforge in the vafi-dev cluster;
+  shares vtaskforge's Postgres instance (own schema).
+created_at: 2026-05-14T00:00:00Z
+status: active
+
+repos:
+  - id: source
+    kind: source
+    provider: github
+    url: https://github.com/viloforge/vfobs
+    default_branch: develop
+    description: vfobs service + vfobs-sdk-python + Helm chart
+  - id: deploy
+    kind: deploy
+    provider: github
+    url: https://github.com/viloforge/viloforge-platform
+    default_branch: main
+    description: argo-managed deploys live here (argo/products/vfobs/)
+
+methodologies_pin: vtf-methodologies@v0.0
+
+tags:
+  - infrastructure
+  - observability
+  - sdk-as-boundary
+  - phase-1-followup
