@@ -14,7 +14,7 @@ repos:
     kind: source
     provider: github
     url: https://github.com/viloforge/vfobs
-    default_branch: develop
+    default_branch: main
     description: vfobs service + vfobs-sdk-python + Helm chart
   - id: deploy
     kind: deploy
