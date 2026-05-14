@@ -64,8 +64,9 @@ acceptance_criteria:
     (e) connects to `localhost:15432` as `vfobs_app`, queries
         `SELECT * FROM vfobs.events WHERE id = <returned id>`
     (f) asserts every base field matches what was POSTed, `data`
-        JSONB matches deep-equal, and `server_received_at` was
-        injected by the Enricher (visible in the JSONB data)
+        JSONB matches deep-equal, and the row's `created_at`
+        column is within 5s of the POST time (server-time audit
+        provided by Postgres DEFAULT per T0).
   - AC-T6-5 — `tests/scenario/test_event_roundtrip.py` test
     `test_health_endpoints_reachable_through_chart` (scenario
     marker): GETs `/healthz` and `/readyz` through the port-forward,
@@ -237,16 +238,20 @@ async def test_post_event_persists_and_retrievable(vfobs_port, pg_port):
         f"host=localhost port={pg_port} user=vfobs_app password=devpassword dbname=vfobs"
     ) as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT type, workgraph_id, task_id, data FROM vfobs.events WHERE id = %s", (eid,))
+            cur.execute(
+                "SELECT type, workgraph_id, task_id, data, created_at "
+                "FROM vfobs.events WHERE id = %s", (eid,))
             row = cur.fetchone()
     assert row is not None
-    typ, wgid, tid, data = row
+    typ, wgid, tid, data, created_at = row
     assert typ == "task.state_changed"
     assert wgid == "wg_scenario1"
     assert tid == "t_scenario"
     assert data["from_status"] == "todo"
     assert data["to_status"] == "doing"
-    assert "server_received_at" in data  # Enricher fingerprint
+    # server-time audit: created_at is set by Postgres DEFAULT now()
+    delta = (datetime.now(UTC) - created_at).total_seconds()
+    assert 0 <= delta < 5
 ```
 
 The `vfobs_port` / `pg_port` fixtures in `conftest.py` start

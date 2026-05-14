@@ -82,9 +82,9 @@ subpackage. Everything in this task is data-layer bootstrap.)
 
 ## Implementation sketch
 
-**Pattern: Adapter** (Alembic adapts our Python schema-definition
-to whatever Postgres version the cluster runs). No application-layer
-patterns; this task is pure DDL + bootstrap.
+No application-layer patterns — this task is pure DDL + bootstrap.
+(Alembic itself is a migration tool, not a GoF pattern; avoiding
+pattern theater per engineering-principles §3.)
 
 The migration file template:
 

@@ -43,14 +43,15 @@ acceptance_criteria:
     taking `(event: Event, context: dict) -> Event`. The handler
     chain is composed in `_ingest_pipeline()` and called from the
     POST handler. Validator is implicit (FastAPI handles it).
-  - AC-T4-4 — `Enricher` adds (when missing) a `server_received_at`
-    timestamp into `event.data` via a model-rebuild helper
-    (`event.model_copy(update={"data": {**event.data.model_dump(),
-    "server_received_at": now()}})`). Source is left as-supplied by
-    the controller (DESIGN §C — controllers self-identify as their
-    source). The Enricher is the single place server-time
-    augmentation happens; future enrichments (geo, tenant tagging)
-    add nodes here without touching the storer or validator.
+  - AC-T4-4 — `Enricher` is a **no-op pass-through in v1** — the
+    function returns the event unchanged. It exists to instantiate
+    the Chain of Responsibility pipeline shape so v2 augmentations
+    (geo-tagging, classification overrides, multi-tenant resolution)
+    can land here without touching the validator or storer. Server-
+    time audit is supplied by the Postgres `events.created_at`
+    DEFAULT (set by T0) — no Python-side enrichment is needed.
+    The Enricher's signature is fixed (`(event, context) -> Event`)
+    so future node additions are append-only.
   - AC-T4-5 — `Storer` calls `EventRepository.store(event)` (the
     repo is resolved from app state — `request.app.state.event_repo`,
     set in `create_app`'s lifespan from T3) and returns the
@@ -60,14 +61,15 @@ acceptance_criteria:
     (token="testtok"). Covers: valid event POST → 201 with id=1;
     valid event but wrong token → 401; missing token → 401; bad
     event shape → 422; the second valid POST returns id=2;
-    Enricher injects `server_received_at` (visible in the
-    repository's stored event). Pyramid level: unit.
+    Enricher is invoked and returns the event unchanged (assert
+    pre- and post-Enricher equality). Pyramid level: unit.
   - AC-T4-7 — Integration: `tests/integration/test_post_events_live.py`
     spins the app against a disposable Postgres (T0 fixture
     pattern) wired to `PostgresEventRepository`, POSTs a real
     event over HTTP via `httpx.AsyncClient`, asserts 201 + id, then
     queries Postgres directly to verify the event is in
-    `vfobs.events` with `server_received_at` set.
+    `vfobs.events` with the row's server-default `created_at`
+    populated (within 5s of POST time — Postgres-side audit).
   - AC-T4-8 — Contract: `tests/contract/test_post_events_contract.py`
     posts one event of each of the 17 event types defined in T1
     using EventFactory builders and asserts each 201s with a
@@ -175,15 +177,12 @@ AnyEvent = Annotated[
     Field(discriminator="type"),
 ]
 
-# CoR node 1
+# CoR node 1 — v1: no-op pass-through; extension point for v2
+# (geo-tagging, classification overrides, tenant resolution).
 async def enricher(event: Event, context: dict) -> Event:
-    data = event.data.model_copy(update={
-        "server_received_at": context.get("server_received_at",
-                                          datetime.now(UTC)),
-    })
-    return event.model_copy(update={"data": data})
+    return event
 
-# CoR node 2
+# CoR node 2 — persists via the repository.
 async def storer(event: Event, context: dict) -> Event:
     repo = context["repo"]
     eid = await repo.store(event)
@@ -207,7 +206,6 @@ async def post_events(
     context = {
         "repo": request.app.state.event_repo,
         "principal": principal,
-        "server_received_at": datetime.now(UTC),
     }
     eid = await _run_pipeline(body, context)
     return {"id": eid}
@@ -227,15 +225,27 @@ async def lifespan(app: FastAPI):
         await engine.dispose()
 ```
 
-### Note on data-field augmentation
+### Note on server-time audit
 
-The Enricher adds `server_received_at` into `event.data` because the
-base Event schema (T1) deliberately doesn't carry a server-time
-field — keeps T1's pure-data discipline. Storing
-`server_received_at` in `data` means it's preserved through the
-JSONB column and visible to consumers. The base table column
-`created_at` (T0) is the row-insert audit timestamp; they're
-semantically different and both useful.
+Server-time auditing is handled at the **storage layer** via the
+`events.created_at` column (Postgres DEFAULT `now()`, set by T0),
+not at the Python layer in the Enricher. Rationale:
+
+- Pydantic v2's `model_copy(update={...})` silently drops keys not
+  declared in the target model (verified empirically). Stuffing
+  `server_received_at` into the typed `data` sub-model would
+  silently disappear at `model_dump()` time, producing a
+  ghost-write defect for a field critical to anomaly detection.
+- The DB DEFAULT is set at INSERT, which is functionally
+  equivalent to "server received" within microseconds.
+- Read consumers (WG2) project `created_at` as the canonical
+  server-time field.
+
+If v2 needs Python-side enrichments (per-event classification
+overrides, multi-tenant resolution), they will be added as
+explicit base fields on `Event` in T1 + corresponding columns in
+T0, then populated by named Enricher nodes — not by smuggling
+keys through `data`.
 
 ## Fail-loud directive (R3)
 
@@ -258,9 +268,12 @@ reworked.
 - Storage failures bubble up as 500. Do NOT swallow them and return
   200 — that would create a ghost-write defect (analogous to the
   ghost-completion class the canary spike found).
-- `server_received_at` MUST be set to **server time**, not
-  client-supplied. Used for storage audit, ordering ambiguity
-  resolution, and downstream anomaly detection in WG4.
+- Server-time audit is the row's `created_at` column (Postgres
+  DEFAULT, set by T0). The Enricher MUST NOT attempt to stuff
+  server-time into `event.data` — Pydantic's `model_copy` drops
+  undeclared keys at `model_dump` (verified empirically). Any v2
+  Python-side enrichments add explicit base fields on `Event` (T1)
+  + columns in T0; never undeclared keys.
 - No batching, no async queuing, no fire-and-forget. POST blocks
   until storage succeeds and returns the id.
 
