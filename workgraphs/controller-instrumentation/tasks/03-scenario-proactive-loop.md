@@ -8,7 +8,7 @@ required_tags:
   - executor
 depends_on:
   - t_ci_hook1
-  - t_ci_watch2
+  - t_ci_t2fix
 target_repo: viloforge/vfobs
 agent_model: claude-opus-4-7
 judge: true
@@ -19,13 +19,17 @@ created_at: 2026-05-16T00:00:00Z
 acceptance_criteria:
   - "AC-T3-1 — A scenario harness runs an instrumented controller
     (T1) against a STUB harness invoker whose behaviour is
-    scripted: a 'healthy' task (emits turns) and a 'stuck' task
-    (claims, heartbeats, but emits NO harness turns) — both
-    emitting into the kind-deployed vfobs (WG2/T5 cluster + the
-    vtfstub sidecar, isolated KUBECONFIG per executor SC-1)."
-  - "AC-T3-2 — vfobs-watch (T2) run against the STUCK task prints
-    `STALLED` and exits non-zero BEFORE the task's configured
-    timeout would have elapsed (the proactive proof — WG-AC4)."
+    scripted: a 'healthy' task (heartbeats AND mutates its workdir
+    periodically ⇒ task.workdir_changed) and a 'stuck' task
+    (claims, heartbeats, but NEVER mutates its workdir ⇒ no
+    task.workdir_changed) — both emitting into the kind-deployed
+    vfobs (WG2/T5 cluster + vtfstub sidecar, isolated KUBECONFIG
+    per SC-1). (Reframed per G2: stuck = no workdir progress, the
+    architecturally-real signal, not 'no harness turns'.)"
+  - "AC-T3-2 — vfobs-watch (the T4-corrected watcher) run against
+    the STUCK task prints `STALLED` and exits non-zero BEFORE the
+    task's configured timeout would have elapsed (the proactive
+    proof — WG-AC4)."
   - "AC-T3-3 — vfobs-watch against the HEALTHY task stays `OK` and
     exits zero at terminal."
   - "AC-T3-4 — A near-timeout task is flagged APPROACHING_TIMEOUT

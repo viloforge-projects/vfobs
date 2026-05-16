@@ -47,15 +47,28 @@ tags:
 
 ```mermaid
 flowchart LR
-    T0["00-vfobs-sdk-emitter<br/><i>executor</i>"]
-    T1["01-controller-hook-points<br/><i>executor</i>"]
-    T2["02-live-watcher<br/><i>executor</i>"]
+    T0["00-vfobs-sdk-emitter<br/><i>done #16</i>"]
+    T2["02-live-watcher<br/><i>done #17</i>"]
+    T1["01-controller-hook-points<br/><i>revised; gated</i>"]
+    T4["04-watcher-stall-correction<br/><i>executor</i>"]
     T3["03-scenario-proactive-loop<br/><i>executor</i>"]
 
     T0 --> T1
+    T2 --> T4
     T1 --> T3
-    T2 --> T3
+    T4 --> T3
 ```
+
+**Post pre-impl-review restructure (operator-ratified
+2026-05-16):** the T1 review found 2 blocking gaps (G1 no
+`workgraph_id` in the controller; G2 harness is opaque ⇒ no
+mid-run progress signal). Resolution: progress signal switched to
+controller-side `task.workdir_changed` (DESIGN's own criterion);
+`workgraph_id` added to `TaskInfo` at the worksource boundary.
+That correction reopens the **already-merged T2** (its `Stall`
+keyed on harness recency) → new task **T4** re-points it at
+`task.workdir_changed`. T0 is signal-agnostic, unaffected. See
+`plan.md` §D2/§D7/§D8/§D9 + `t1-preimpl-review.md`.
 
 - **T0** — `vfobs-sdk-python`: a versioned, typed Emitter that
   wraps `POST /events`. Fire-and-forget + bounded + never raises

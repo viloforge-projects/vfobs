@@ -28,20 +28,35 @@ later). **Rejected:** SDK vendored in vafi (couples the contract to
 one consumer, violates NFR5); raw httpx calls in the controller
 (no versioned boundary).
 
-## D2 — Controller hook points (verified against vafi source)
+## D2 — Controller hook points (REVISED post T1 pre-impl review)
 
-| Event | Where (factual) |
-|---|---|
-| `task.claimed` | `controller.py:_poll_and_execute`, right after `claimed_task = await self.work_source.claim(...)` (~L164) |
-| `task.heartbeat` | `heartbeat.py:heartbeat_loop` per tick (the per-task loop, alongside the existing `work_source.heartbeat`) |
-| `harness.turn_started` | `invoker.py:invoke`, before `_run_harness` |
-| `harness.turn_completed` | `invoker.py:invoke`, after `_parse_harness_output` (carries turns-so-far if cheaply available) |
-| `task.state_changed` (terminal, w/ `execution_summary`) | `controller.py:_poll_and_execute`, after `execute()` returns + result reported (~L189+) |
+The first cut assumed harness turns are a mid-run progress signal
+and that the controller carries `workgraph_id`. The pre-impl
+review (`t1-preimpl-review.md`, verified against actual vafi
+source — applies [[feedback-verified-fact-discipline]]) proved
+both false. Revised, operator-ratified:
 
-The judge path (`_poll_and_review`) gets the same claimed/terminal
-pair in a later increment; this slice is the executor signals the
-stuck-detection use case needs. No new turn counter is threaded
-into heartbeat (see D7).
+| Event | Where (verified source) | Notes |
+|---|---|---|
+| `task.claimed` | `controller.py:_poll_and_execute`, after `self.work_source.claim(...)` | `agent_id` = `self._agent_info.id` |
+| `task.heartbeat` | `heartbeat.py:heartbeat_loop` per tick | the **alive** signal |
+| `task.workdir_changed` | same `heartbeat_loop` tick, emitted **only when** a cheap workdir signature changed since the last tick | the **progress** signal (G2 fix) |
+| `task.state_changed` (terminal, `execution_summary`) | `controller.py:execute()` after `invoker.invoke` returns | `success→to_status` mapped (D8) |
+| `harness.turn_started` / `harness.turn_completed` | `controller.py:execute()`, bracketing the `invoker.invoke` call (NOT inside the opaque invoker) | **coarse phase markers only** — one pair per invocation; explicitly NOT the stall signal (G2) |
+
+- **G1 — `workgraph_id`:** added to `TaskInfo` at the
+  worksource→TaskInfo mapping boundary (vtf already associates a
+  task to a workgraph; the mapping just stops dropping it). Every
+  hook reads `task.workgraph_id`. Without this no event is valid
+  (envelope requires it). See D8.
+- **G2 — progress signal:** the harness runs as a buffered opaque
+  subprocess (`communicate()` until exit) — there is *no* mid-run
+  harness event. The DESIGN's own stuck criterion is *"workdir
+  has not changed in N minutes."* So progress = `task.workdir_changed`
+  recency, computed controller-side. See revised D7.
+- The judge path (`_poll_and_review`) gets claimed/terminal in a
+  later increment. `invoker.py` stays **pure** (no emitter, no
+  ids) — G4.
 
 ## D3 — Fail-safe semantics (load-bearing, AC-gated)
 
@@ -67,16 +82,24 @@ failure path alike:
 
 CLI: `vfobs-watch --task <id> [--workgraph <id>] [--interval 5]`.
 Polls the WG2 read API; keeps per-task state (claimed_at,
-last_heartbeat_at, max harness-event id seen). Applies a Strategy
-set of anomaly rules, prints a one-line live verdict each tick, and
-exits non-zero / emits a clear ALERT line when a rule fires:
+last_heartbeat_at, **last `task.workdir_changed` at**). Applies a
+Strategy set of anomaly rules, prints a one-line live verdict each
+tick, and exits non-zero / emits a clear ALERT line when a rule
+fires:
 
 - `ApproachingTimeout` — `now - claimed_at > 0.8 * taskTimeout`
   and not terminal. (taskTimeout from config/flag; G2 default.)
-- `Stall` — heartbeats still arriving (alive) BUT no new
-  `harness.*` event for > `stall_seconds` (default 60s). This is
-  the exact pi-hang cross-signal.
+- `Stall` — heartbeats still arriving (alive) BUT no
+  `task.workdir_changed` for > `stall_seconds` (default 60s).
+  **(REVISED per G2 — keys on workdir-change recency, not harness
+  recency; the harness emits no mid-run events.)** This is the
+  exact pi-hang cross-signal.
 - `Crashed` — no heartbeat for > `crash_seconds` (default 120s).
+
+> The merged T2 (PR #17) implemented `Stall` against harness
+> recency. Task `04-watcher-stall-correction` re-points it at
+> `task.workdir_changed` per this revision. The rule *shape*
+> (alive-but-not-progressing) is unchanged — only its input event.
 
 Each rule is one class implementing `evaluate(state) -> Verdict |
 None`. WG4 later instantiates *these same rule classes*
@@ -99,15 +122,63 @@ Controller reads `VFOBS_EMIT_URL`, `VFOBS_EMIT_TOKEN`,
 `NullEmitter`; the controller behaves exactly as today. Turning it
 on is a config flip, reversible, no code change (IaC-friendly).
 
-## D7 — Progress signal without threading a turn counter
+## D7 — Progress signal = workdir-change recency (REVISED, G2)
 
-The watcher's "progressing?" check does NOT need a turn number
-inside the heartbeat. It compares the **max id of `harness.*`
-events** seen between polls: new harness events since last poll =
-progressing; none while heartbeats continue = stalled. This keeps
-the `heartbeat_loop` change to a single bare `task.heartbeat`
-emit (minimal blast radius on a production loop) and puts the
-cross-signal logic in the watcher where it's testable.
+**Original (wrong):** "new `harness.*` events between polls =
+progressing." The pre-impl review proved the harness is an opaque
+buffered subprocess — there are no mid-run harness events, so that
+rule false-positives `STALLED` on every healthy long task.
+
+**Revised:** progress = **workdir change**, the DESIGN's own stuck
+criterion. Each `heartbeat_loop` tick the controller computes a
+*cheap* workdir signature for the task's workdir — `git -C
+<workdir> status --porcelain` hashed, plus the max file mtime as a
+fallback when not a git tree. If it changed since the previous
+tick, emit `task.workdir_changed` (an existing WG1 event type:
+`{files_changed, commits, branch}`-ish payload — populate what's
+cheap, the *recency* is what matters). The watcher's `Stall` rule
+keys on **`task.workdir_changed` recency**: heartbeats fresh
+(alive) AND no workdir change for > `stall_seconds` = STALLED.
+This is the exact pi-hang cross-signal, with a signal that is
+actually observable mid-run without touching the opaque harness
+subprocess.
+
+Cost on the production loop: one `git status` per heartbeat
+interval (default 30s) over a local workdir — negligible, and
+wrapped by the fail-safe (D3): a slow/failing `git status` is
+caught + the tick still emits the bare heartbeat.
+
+**Downstream:** this changes an assumption baked into the
+already-merged T2 watcher (PR #17 keyed `Stall` on harness
+recency). A dedicated correction task (workgraph T-fix:
+`tasks/04-watcher-stall-correction.md`) re-points T2's
+`WatchState`/`Stall` at `task.workdir_changed`. T0 (emitter) is
+signal-agnostic — unaffected.
+
+## D8 — `workgraph_id` source + terminal-status mapping (G1, G5)
+
+- `TaskInfo` gains `workgraph_id: str = ""` — a **default**, not
+  a required field (verifier V16: vafi tests construct
+  `TaskInfo(...)` directly; a required no-default field regresses
+  them — the WG2 D-T0-1 class). Production worksources populate it
+  from the vtf task↔workgraph link (`worksources/vtf.py`, which
+  currently drops it). Empty ⇒ hooks skip-emit + log-once
+  (degrade, never crash). `types.py` + worksource mapping change;
+  in T1's blast radius by necessity (no event is valid without it).
+- `task.state_changed` terminal mapping: `ExecutionResult.success
+  is True → to_status="done"`; `False → to_status="failed"`
+  (`from_status="doing"`). `ExecutionResult` has no `total_tokens`
+  → `execution_summary.total_tokens=None` (Optional; do NOT widen
+  vafi `types.py` for it in this slice — flagged for a later
+  increment).
+
+## D9 — Emitter lifecycle
+
+The Emitter is constructed once via `make_emitter(config)` and
+injected into `Controller`. `Controller.run()`'s `finally` block
+MUST `await emitter.aclose()` so the bounded queue flushes the
+last task's terminal `task.state_changed` on shutdown (otherwise
+the most operationally-interesting event can be the one dropped).
 
 # Considered alternatives
 

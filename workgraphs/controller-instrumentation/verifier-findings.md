@@ -66,3 +66,33 @@ legitimate review point (surfaced rather than auto-proceeded).
   WG2-propagated checks this pass exercises first).
 - WG2 `verifier-findings.md` (F1/F2/V16/V17 lineage),
   kb `jakdRrCh` (degradable → fail-safe basis).
+
+---
+
+# Re-verification (post pre-impl-review revision, 2026-05-16)
+
+The first pass said "ready" but a deeper, source-grounded
+**pre-impl review** (operator-requested; `t1-preimpl-review.md`)
+found 2 blocking gaps the fast same-session passes missed —
+itself the lesson behind [[feedback-verified-fact-discipline]].
+The design was revised (plan §D2/§D4/§D7/§D8/§D9; T1 rewritten;
+T4 added; T3 reframed) and re-verified.
+
+| Check | Result on revised design |
+|---|---|
+| V1 | PASS (grep clean) |
+| V2 | PASS — roots T0✅,T2✅; T0→T1, T2→T4 (lineage; T4 `depends_on []` because T2 is **merged** ⇒ in base — intentional, like WG2 F-adv1), T1→T3, T4→T3, T3 sink. Acyclic, connected. |
+| V8 | PASS — T1/T4 now cite **read** vafi source (controller/heartbeat/invoker/types/worksources), not grep. The original V8 "PASS" was the defect the pre-impl review corrected. |
+| V14 | PASS — Strategy/DIP intact; harness events demoted to documented coarse phase markers (no longer mis-claimed as the progress signal). |
+| **V16** | **FINDING — patched inline.** T1's `TaskInfo.workgraph_id` was specced as a required field; vafi constructs `TaskInfo(...)` directly in test_controller/test_invoker/test_gates. Required-no-default ⇒ regresses them (the exact WG2 D-T0-1 / V16 class V16 exists to catch). **Patched:** AC-T1-2 + plan §D8 now mandate `workgraph_id: str = ""` (default) + skip-emit-and-log-once when empty (degrade, fail-safe-symmetric). |
+| V17 | PASS — emitted-envelope contract unchanged (T0 merged, signal-agnostic; T4 doesn't emit). |
+| others | unchanged from first pass. |
+
+**Verdict: ready-after-inline-patch.** The V16 finding is patched
+in-spec (clear mechanical resolution in the established D-T0-1
+lineage). G1/G2 are resolved by the operator-ratified design
+revision. T4 is the explicit, tracked correction of the merged
+T2. **The verifier methodology worked twice here:** the pre-impl
+review caught what the fast pass missed, and the propagated V16
+caught a regression in the *revision itself* before
+implementation — exactly the 10–100× cheaper catch.
