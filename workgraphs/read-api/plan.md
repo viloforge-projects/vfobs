@@ -19,6 +19,29 @@ already in storage (no schema changes required).
 
 # Design decisions
 
+> ⚠️ **SUPERSEDED — D1 & D2 external-contract mechanism (OIQ3),
+> corrected 2026-05-16 (vfobs#20).** This plan was authored
+> against an **invented** vtaskforge surface — `GET
+> /v2/auth/whoami` + `Authorization: Bearer` (D1) and a
+> `/v2/workgraphs/<id>/` path (D2). **None of these exist in
+> vtaskforge.** It was caught only on the real vafi-dev
+> end-to-end, because the WG2 stub faked the invented endpoint so
+> every gate (verifier, PRs, scenario) passed while being
+> externally wrong.
+>
+> The *concept* (vtf-token piggyback; an adapter projecting
+> vtaskforge metadata) is sound and unchanged. The real,
+> source-cited mechanism is: `GET /v2/auth/validate/` with DRF
+> `Authorization: Token <t>`; `get_workgraph → /v2/milestones/
+> <id>/` (vfobs "workgraph" == vtaskforge milestone),
+> `get_task → /v2/tasks/<id>/`.
+>
+> **This block is preserved as the SDD historical record (the
+> lesson is the point — do not silently rewrite it).** Current
+> truth: `viloforge/vfobs` `docs/IMPLEMENTATION-STATUS.md`.
+> Rule it produced: kb `feedback-external-contract-grounding` +
+> verifier **V18**. D1/D2 below are as-originally-authored.
+
 ## D1 — Read auth (OIQ3 resolution, read-half): vtf-token piggyback with hash-cached whoami
 
 Per DESIGN §I, operator-facing reads reuse the vtaskforge bearer

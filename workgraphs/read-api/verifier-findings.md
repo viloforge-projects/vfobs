@@ -182,3 +182,33 @@ import and executor pickup.
   classes)
 - `viloforge-platform/docs/pipeline-observability-DESIGN.md` G8 —
   execution_summary emission authority used to ground F2
+
+---
+
+# Post-hoc finding: OIQ3 external contract was INVENTED (this pass missed it)
+
+**Recorded 2026-05-16, after the real vafi-dev end-to-end.
+Preserved, not rewritten — the miss is the lesson.**
+
+This verifier pass passed D1/D2 (it even praised the Adapter as
+"genuine" under V14). It should not have: D1's `GET
+/v2/auth/whoami` + `Bearer` and D2's `/v2/workgraphs/<id>/` are
+**invented — none exist in real vtaskforge** (it has
+`/v2/auth/validate/` + DRF `Token`; "workgraph" == milestone).
+
+Why every gate missed it: V1–V15 only resolve **in-repo**
+citations (V8). Nothing required the *external* contract to be
+cited against the real provider, and the WG2 stub faked the
+invented endpoint — so the verifier, 6 PRs, and the gated
+scenario were all internally consistent and externally wrong.
+It surfaced only when a real vfobs hit real vtaskforge.
+
+Root cause + rule: the architect resolved an under-specified
+external contract by inventing a plausible endpoint, then a
+self-authored stub validated the invention against itself (the
+closed-system rubber-stamp at an external boundary). This
+produced **verifier V18** (external-integration contracts must
+cite the real provider source/OpenAPI; stubs derived from it,
+never invented) and kb `feedback-external-contract-grounding`.
+Corrected in vfobs#20. Current truth: `viloforge/vfobs`
+`docs/IMPLEMENTATION-STATUS.md`.
