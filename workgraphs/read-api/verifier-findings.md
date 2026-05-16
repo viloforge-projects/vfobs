@@ -77,6 +77,32 @@ declared id: int|None = None  -> model_copy(update={"id":99}); model_dump()["id"
 - T2 cross-refs F1 for `last_event_id` / `next_from_id`.
 - plan §D3 notes the `Event.id` propagation contract.
 
+**⚠️ Mechanism superseded at implementation (operator decision R2,
+2026-05-16).** The inline-patch mechanism above ("add a declared
+`id` to the base `Event`") was found, during T1 implementation, to
+drift WG1's deliberately-locked `tests/fixtures/event_schemas.v1.json`
+— adding `id` to the base model changes the **write/ingest** schema
+of every event type (a client could POST `{"id": …}`), and the
+contract suite went red. F1's *finding* (pagination needs a stored
+id) stands; its *mechanism* was wrong. Operator chose **R2**:
+
+- `Event` base model is **unchanged** — the locked v1 ingest schema
+  stays locked (`contract` suite stays green). `_row_to_event` and
+  `get_by_id` are byte-for-byte unchanged.
+- A new read-only model `repositories.StoredEvent { id: int;
+  event: Event }` carries the DB id. `find_*` return
+  `list[StoredEvent]`. Read endpoints serialize `{id, event}`.
+- AC-T1-10 reworded to the StoredEvent mechanism; plan §D3/§D4 and
+  tasks 01/02/03 re-patched accordingly. The "no separate transform
+  layer" intent of AC-T2-5 is consciously reversed — a thin
+  StoredEvent read model is the correct write/read separation and
+  is cheaper than rewriting a locked contract.
+- Methodology: this is a new verifier-class — *"an inline
+  field-add patch to a model whose serialized schema is a locked
+  contract."* The verifier must check whether a model it proposes
+  to mutate backs a locked contract fixture. Recorded for WG2 retro
+  alongside the D-T0-1 class.
+
 ### F2 — Cost-filter disagreement (plan §D5 ↔ AC-T1-6 ↔ WG-AC5) + rework double-count risk
 
 **Severity:** blocking (correctness of WG-AC5 cost rollups).

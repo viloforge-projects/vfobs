@@ -44,14 +44,19 @@ acceptance_criteria:
     tasks; sample_event_count = number of (post-dedup) contributing
     events. A task with two summary-bearing state_changed events
     (rework) is counted ONCE (the later id wins)."
-  - "AC-T1-10 — Event id propagation (verifier F1): src/vfobs/events/base.py
-    Event gains a declared `id: int | None = None`;
-    _row_to_event maps row['id']; every find_* result carries the
-    DB id (Postgres from the SELECTed column, InMemory via
-    model_copy(update={'id': eid})). Unit AC asserts find_* results
-    have id populated AND that Event.model_dump() includes 'id'
-    (regression guard for the WG1-F1 silent-drop class). Existing
-    store()->int and get_by_id signatures unchanged."
+  - "AC-T1-10 — Stored-event id propagation (verifier F1, mechanism
+    R2): the base `Event` is UNCHANGED (its v1 ingest schema is a
+    locked contract — adding a field drifts event_schemas.v1.json).
+    A read-only `StoredEvent {id:int; event:Event}` model lives in
+    event_repository.py; find_by_workgraph/find_by_task/find_filtered
+    return list[StoredEvent] (Postgres: StoredEvent(id=row['id'],
+    event=_row_to_event(row)); InMemory: StoredEvent(id=eid,
+    event=ev)). Unit AC asserts find_* items expose `.id` and
+    `.event`, and StoredEvent.model_dump() includes 'id' + nested
+    'event' (regression guard for the WG1-F1 silent-drop class +
+    proof the locked Event schema is untouched: contract suite
+    stays green). _row_to_event, get_by_id, store()->int all
+    byte-for-byte unchanged (get_by_id stays bare Event — D-T1-1)."
   - "AC-T1-7 — Unit: tests/unit/test_event_repository.py (extend)
     covers all four methods against InMemoryEventRepository:
     empty store returns empty/zero, mixed events filter correctly,
@@ -71,10 +76,14 @@ acceptance_criteria:
 
 ## Files touched
 
-- `src/vfobs/events/base.py` (modify — add declared
-  `id: int | None = None` to the frozen Event base; verifier F1)
+- `src/vfobs/events/base.py` (NOT modified — verifier F1 mechanism
+  R2 keeps the locked ingest schema intact; only a clarifying
+  comment is acceptable)
 - `src/vfobs/repositories/event_repository.py` (modify — extend ABC
-  + both impls + add CostSummary + map `id` in `_row_to_event`)
+  + both impls + add CostSummary + add `StoredEvent` read model;
+  `_row_to_event`/`get_by_id` unchanged)
+- `src/vfobs/repositories/__init__.py` (modify — export
+  `CostSummary` + `StoredEvent`)
 - `tests/unit/test_event_repository.py` (modify — extend)
 - `tests/integration/test_postgres_event_repository.py` (modify —
   extend)
@@ -156,10 +165,13 @@ async def find_by_workgraph(self, workgraph_id, *, from_id=None, limit=100):
     for eid, ev in sorted(self._events.items()):
         if ev.workgraph_id != workgraph_id: continue
         if from_id is not None and eid < from_id: continue
-        out.append(ev.model_copy(update={"id": eid}))   # F1: attach DB id
+        out.append(StoredEvent(id=eid, event=ev))   # F1/R2 read model
         if len(out) >= min(limit, 1000): break
     return out
-# find_by_task / find_filtered attach id the same way.
+# find_by_task / find_filtered wrap StoredEvent the same way.
+# (Postgres: StoredEvent(id=row["id"], event=_row_to_event(row)).
+#  Nullable from_id cursor is built in Python, NOT a
+#  ":p IS NULL OR ..." clause — asyncpg can't type a NULL bigint.)
 
 async def cost_summary(self, *, workgraph_id=None, agent_id=None):
     if (workgraph_id is None) == (agent_id is None):

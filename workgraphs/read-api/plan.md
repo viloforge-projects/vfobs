@@ -76,12 +76,12 @@ Additive only. New abstract methods on `EventRepository`:
 async def find_by_workgraph(
     self, workgraph_id: str, *,
     from_id: int | None = None, limit: int = 100,
-) -> list[Event]: ...
+) -> list[StoredEvent]: ...   # F1/R2: StoredEvent{id,event}
 
 async def find_by_task(
     self, task_id: str, *,
     from_id: int | None = None, limit: int = 100,
-) -> list[Event]: ...
+) -> list[StoredEvent]: ...   # F1/R2: StoredEvent{id,event}
 
 async def find_filtered(
     self, *,
@@ -93,7 +93,7 @@ async def find_filtered(
     org_id: str | None = None,
     from_id: int | None = None,
     limit: int = 100,
-) -> list[Event]: ...
+) -> list[StoredEvent]: ...   # F1/R2: StoredEvent{id,event}
 
 async def cost_summary(
     self, *,
@@ -117,19 +117,24 @@ class CostSummary(BaseModel):
 parameterized SQL. `InMemoryEventRepository` implements them with
 list comprehensions for the LSP-parametrized test pattern.
 
-**Event `id` propagation (verifier F1).** WG1's `Event` (frozen)
-declares no `id`, and `_row_to_event` does not map it — WG1 only
-needed `store()→int` + `get_by_id(id)`. WG2's pagination
-(`next_from_id = events[-1].id + 1`) and `last_event_id` require
-the DB id on the returned object. Resolution: `Event` base gains a
-**declared** `id: int | None = None` (declared ⇒ survives
-`model_dump`, R13-safe — empirically verified; an *undeclared* key
-attached via `model_copy` is silently dropped by `model_dump`,
-the WG1-F1 class). `_row_to_event` maps `row["id"]`; `find_*`
-results carry `id` (Postgres via the SELECTed column, InMemory via
-`model_copy(update={"id": eid})`). The write path is unchanged —
-stored events keep `id=None`; the DB/counter assigns; reads
-reconstruct with `id`.
+**Stored-event id propagation (verifier F1, mechanism R2).** WG1's
+`Event` (frozen) declares no `id`, and `_row_to_event` does not map
+it — WG1 only needed `store()→int` + `get_by_id(id)`. WG2's
+pagination (`next_from_id = page[-1].id + 1`) and `last_event_id`
+require the DB id on the returned object. Resolution (operator
+decision R2): the DB id is **read-side metadata and must not touch
+the write/ingest `Event` model** — `Event`'s v1 schema is a locked
+contract (`tests/fixtures/event_schemas.v1.json`); adding a field
+to it would drift that contract and let clients POST an `id`.
+Instead a read-only model `StoredEvent { id: int; event: Event }`
+(in `src/vfobs/repositories/event_repository.py`) carries the id.
+`find_by_workgraph`/`find_by_task`/`find_filtered` return
+`list[StoredEvent]`. `_row_to_event` and `get_by_id` are unchanged
+(get_by_id keeps returning a bare `Event` — deviation D-T1-1). The
+write path is entirely untouched. (Rejected mechanism: a declared
+`id` on the base `Event` — empirically green for model_dump but it
+drifts the locked ingest schema; see verifier-findings.md F1
+supersession note.)
 
 ## D4 — Endpoint shapes (T2, T3, T4)
 
@@ -154,8 +159,10 @@ generate clients. Schemas are versioned (`v: 1`).
 ```
 
 vtf metadata comes from the Adapter (T0). vfobs metadata comes
-from T1's `find_by_workgraph(workgraph_id, limit=1, order=desc)`
-plus a count.
+from a T2-internal private `_find_last_by_workgraph` helper
+(`ORDER BY id DESC LIMIT 1`; T1's `find_by_workgraph` fixes
+`id ASC` and exposes no order param — verifier F-adv1) plus a
+count. `last_event_id` is the `StoredEvent.id` of that tail.
 
 ### `GET /tasks/<id>` (T2)
 
@@ -169,24 +176,27 @@ Paginated list:
 {
   "v": 1,
   "task_id": "t_x",
-  "events": [ ...Event JSON... ],
+  "events": [ { "id": 137, "event": { ...Event JSON... } }, ... ],
   "next_from_id": 138
 }
 ```
 
-`next_from_id` is `events[-1].id + 1` (or null if fewer than `limit`
-returned).
+Each list item is a `StoredEvent` (`{id, event}`) per verifier
+F1/R2 — the read model, not the bare ingest `Event`. `next_from_id`
+is `page[-1].id + 1` (or null if fewer than `limit` returned).
 
 ### `GET /events?filter=...&from=&limit=` (T3)
 
 ```json
 {
   "v": 1,
-  "events": [ ... ],
+  "events": [ { "id": 137, "event": { ... } }, ... ],
   "next_from_id": 138,
   "filter_applied": { "type": "task.heartbeat" }
 }
 ```
+
+(`events` items are `StoredEvent` `{id, event}` — F1/R2.)
 
 Query params (Builder pattern in `_build_event_query(request) ->
 EventQuery`):

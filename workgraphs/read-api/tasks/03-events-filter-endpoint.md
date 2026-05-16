@@ -25,12 +25,14 @@ acceptance_criteria:
     pattern) maps URL params to a strongly-typed EventQuery
     dataclass; rejects unknown params (422); rejects limit > 1000
     (422); rejects from_id < 0 (422)."
-  - "AC-T3-3 — EventsFilterResponse DTO: {v:1, events:[...],
-    next_from_id: int|None, filter_applied: dict}. filter_applied
-    reflects exactly the non-default params the request supplied
-    (for debugging + client UX)."
-  - "AC-T3-4 — Calls EventRepository.find_filtered with the built
-    EventQuery; renders results via EventDTO from T2."
+  - "AC-T3-3 — EventsFilterResponse DTO: {v:1,
+    events:[{id, event}...], next_from_id: int|None,
+    filter_applied: dict}. Each item is a StoredEvent (F1/R2 — the
+    T1 read model, serialized directly). filter_applied reflects
+    exactly the non-default params the request supplied."
+  - "AC-T3-4 — Calls EventRepository.find_filtered (returns
+    list[StoredEvent]); serializes StoredEvent directly;
+    next_from_id = page[-1].id + 1 if a full page else None."
   - "AC-T3-5 — Unit: tests/unit/test_events_filter.py covers
     EventQuery builder happy path + failure paths (bad limit,
     bad from_id, unknown param via 422 from FastAPI rather than
@@ -60,6 +62,11 @@ acceptance_criteria:
 auth, adapters, write path.)
 
 ## Implementation sketch
+
+> **F1/R2 note:** pseudocode below predates R2. `find_filtered`
+> returns `list[StoredEvent]`; serialize StoredEvent directly (no
+> `EventDTO`); `next_from_id = page[-1].id + 1`. ACs above are
+> authoritative where they differ.
 
 **Patterns: Builder (EventQuery construction; one place where URL
 params → typed query object) + Strategy (already in T1's

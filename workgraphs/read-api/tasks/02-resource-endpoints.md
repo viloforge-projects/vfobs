@@ -28,22 +28,28 @@ acceptance_criteria:
     T2-internal private `_find_last_by_workgraph(workgraph_id)`
     helper (T1's find_by_workgraph fixes `id ASC` and exposes no
     order param — see plan §D3; the helper does
-    `... ORDER BY id DESC LIMIT 1`). `last_event_id` reads
-    `event.id`, which is populated per verifier F1 (Event gains a
-    declared `id`). 404 if vtf returns None AND vfobs has no events
-    for the id."
+    `... ORDER BY id DESC LIMIT 1` and returns a StoredEvent).
+    `last_event_id` reads `StoredEvent.id` (verifier F1 mechanism
+    R2 — id is on the read model, NOT the bare Event). 404 if vtf
+    returns None AND vfobs has no events for the id."
   - "AC-T2-3 — GET /tasks/<id> returns the equivalent task-scoped
     shape; same 404 logic against VtfClient.get_task + T1's
     find_by_task."
   - "AC-T2-4 — GET /tasks/<id>/events returns paginated event log:
-    {v:1, task_id, events:[...Event JSON...], next_from_id: int|None}.
-    Query params: from_id (optional), limit (default 100, capped
-    1000). next_from_id is last event's id + 1 if a full page was
-    returned else None."
+    {v:1, task_id, events:[{id, event}...], next_from_id: int|None}
+    — each item is a StoredEvent (F1/R2). Query params: from_id
+    (optional, id-inclusive), limit (default 100, capped 1000).
+    next_from_id is page[-1].id + 1 if a full page was returned
+    else None."
   - "AC-T2-5 — Response DTOs declared in src/vfobs/api/dto.py
     (frozen Pydantic models): WorkgraphReadResponse,
-    TaskReadResponse, TaskEventsResponse, EventDTO. EventDTO is
-    Event.model_dump'able — no separate transform layer."
+    TaskReadResponse, TaskEventsResponse. Event list items are the
+    repositories.StoredEvent read model ({id:int, event:Event}) —
+    serialized directly via StoredEvent.model_dump (verifier F1
+    mechanism R2 consciously REVERSES the original AC-T2-5 'no
+    separate transform layer' wording: the thin StoredEvent read
+    model is the correct write/read separation and avoids drifting
+    the locked Event ingest schema)."
   - "AC-T2-6 — Unit: tests/unit/test_reads.py covers each endpoint
     with stubbed VtfClient + InMemoryEventRepository + a
     StaticPrincipalAuth — happy path returns 200 + shape, missing
@@ -76,6 +82,14 @@ acceptance_criteria:
 events/.)
 
 ## Implementation sketch
+
+> **F1/R2 note:** the pseudocode below predates the R2 decision and
+> still says `EventDTO`/`find_by_workgraph(limit=1)` returning bare
+> `Event`. Read it through the R2 lens: `find_*` return
+> `list[StoredEvent]`; the event-list DTO is `StoredEvent`
+> (`{id, event}`) serialized directly (no `EventDTO`); the
+> "last event" helper returns `StoredEvent | None`. The ACs above
+> are authoritative where they differ from this sketch.
 
 **Pattern: composes Adapter (T0 VtfClient) + Repository (T1
 EventRepository) behind the ReadAuth Strategy dep. No new pattern
@@ -120,8 +134,9 @@ makes find_by_workgraph(limit=1) acceptable.)
 Wait — find_by_workgraph returns from oldest to newest ordering by
 plan §D3. For "last event" we need the highest id. Two options:
 
-(a) Add `_find_last_by_workgraph(workgraph_id) -> Event | None` as
-    a private helper on the repo. Best, cheapest.
+(a) Add `_find_last_by_workgraph(workgraph_id) -> StoredEvent | None`
+    as a private helper on the repo (StoredEvent per F1/R2 — gives
+    `last_event_id` from `.id`). Best, cheapest.
 (b) Add `order: Literal["asc","desc"]` param to find_by_workgraph.
     Pollutes interface a little.
 
