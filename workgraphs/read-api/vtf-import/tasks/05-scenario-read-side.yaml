@@ -1,0 +1,31 @@
+id: t_v2scen
+name: "vfobs WG2-T5 — scenario test: read API + cost rollup end-to-end on kind"
+description: |
+  Extends the WG1 kind scenario: deploys a tiny in-cluster
+  vtaskforge stub sidecar, seeds events, hits every WG2 read
+  endpoint, asserts payloads + cost math (incl. F2 rework de-dup)
+  + auth (401) + cursor pagination. Closes the WG2 loop.
+
+  Full spec (authoritative — read this before claiming):
+  viloforge-projects/vfobs/workgraphs/read-api/tasks/05-scenario-read-side.md
+
+  Plan: plan.md §D1-§D5. Methodology: vtf-methodologies/executor/bugfix.md
+  FAIL-LOUD INTENSIFIER (WG1-T6 precedent): do NOT mark complete if
+  the scenario tests do not run to green end-to-end on kind.
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-read-api/t5-scenario-read-side 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T5-1 — tests/scenario/test_read_api_roundtrip.py runs WG2 read paths end-to-end through the kind cluster (re-uses WG1 scenario-prepare + a vtaskforge stub sidecar)."
+  - "AC-T5-2 — tests/fixtures/scenario-vtfstub.yaml deploys a tiny FastAPI+uvicorn vtaskforge stub (/v2/auth/whoami, /v2/workgraphs/<id>/, /v2/tasks/<id>/); impl in scripts/scenario/vtfstub/."
+  - "AC-T5-3 — values-scenario.yaml sets VFOBS_VTASKFORGE_URL to the in-cluster vtfstub service URL."
+  - "AC-T5-4 — Scenario test_full_read_path_after_seed: POST ~10 events over 2 workgraphs + 2 agents with varied execution_summary, GET each endpoint, assert payloads + cost math (incl. a reworked task counted once per F2)."
+  - "AC-T5-5 — Scenario test_read_endpoints_require_auth: unauthenticated GET to each read endpoint → 401."
+  - "AC-T5-6 — Scenario test_filter_pagination_e2e: POST 250 events, GET /events?limit=100, assert 100 + next_from_id, follow cursor to pages 2+3."
+  - "AC-T5-7 — docs/scenario-test-runbook.md updated for the vtfstub sidecar + WG2 scenario operation."
+  - "AC-T5-8 — Branch wg-vfobs-read-api/t5-scenario-read-side pushed."

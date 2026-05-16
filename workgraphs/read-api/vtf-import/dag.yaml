@@ -1,0 +1,21 @@
+tasks:
+  - id: t_v2adp1
+    depends_on: []
+  - id: t_v2rqry
+    depends_on: []
+  - id: t_v2endp
+    depends_on:
+      - t_v2adp1
+      - t_v2rqry
+  - id: t_v2filt
+    depends_on:
+      - t_v2adp1
+      - t_v2rqry
+  - id: t_v2cost
+    depends_on:
+      - t_v2rqry
+      - t_v2endp
+      - t_v2filt
+  - id: t_v2scen
+    depends_on:
+      - t_v2cost

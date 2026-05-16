@@ -1,0 +1,29 @@
+id: t_v2cost
+name: "vfobs WG2-T4 — GET /workgraphs/<id>/cost + GET /agents/<id>/cost"
+description: |
+  Cost rollup endpoints. Strategy pattern (CostAggregationStrategy:
+  ByWorkgraph / ByAgent) over T1's cost_summary (which applies the
+  verifier-F2 latest-per-task de-dup). Pure code; on-the-fly
+  aggregation, no caching in v1.
+
+  Full spec (authoritative — read this before claiming):
+  viloforge-projects/vfobs/workgraphs/read-api/tasks/04-cost-aggregation.md
+
+  Plan: plan.md §D4 + §D5 (F2 de-dup). Verifier: verifier-findings.md F2.
+  Methodology: vtf-methodologies/executor/bugfix.md
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-read-api/t4-cost-aggregation 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T4-1 — GET /workgraphs/<id>/cost + GET /agents/<id>/cost registered; both Depends(get_read_principal); return WorkgraphCostResponse/AgentCostResponse (frozen, v:1, scope id, summary: CostSummary)."
+  - "AC-T4-2 — CostAggregationStrategy(ABC) + ByWorkgraph/ByAgent impls in src/vfobs/api/cost.py; each delegates to EventRepository.cost_summary with the right kwarg."
+  - "AC-T4-3 — Unit tests/unit/test_cost.py vs InMemory: empty→zeros; one terminal task with summary→sum; in-flight (no summary)→excluded; missing field→0 not NaN; reworked task counted once (F2)."
+  - "AC-T4-4 — Integration tests/integration/test_cost_live.py vs real Postgres: seed events across 2 workgraphs + 2 agents incl. a rework (two summary-bearing state_changed for one task); assert math matches the de-dup'd direct SQL."
+  - "AC-T4-5 — Contract: extend tests/contract/test_reads_contract.py with the two cost response shapes."
+  - "AC-T4-6 — 404 from /workgraphs/<id>/cost iff that workgraph_id has zero events in vfobs (pure vfobs view, regardless of vtaskforge); same for /agents/<id>/cost."
+  - "AC-T4-7 — Branch wg-vfobs-read-api/t4-cost-aggregation pushed."

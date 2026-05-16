@@ -1,0 +1,32 @@
+id: t_v2endp
+name: "vfobs WG2-T2 — GET /workgraphs/<id> + /tasks/<id> + /tasks/<id>/events"
+description: |
+  Three composed resource endpoints behind the ReadAuth dep.
+  Composes T0 (VtfClient metadata) + T1 (event reads). Uses
+  T2-internal private _find_last_by_* / _count helpers (T1's ABC
+  stays the four declared methods). last_event_id / next_from_id
+  rely on verifier F1 (Event.id populated).
+
+  Full spec (authoritative — read this before claiming):
+  viloforge-projects/vfobs/workgraphs/read-api/tasks/02-resource-endpoints.md
+
+  Plan: plan.md §D4. Verifier: verifier-findings.md F1 + F-adv1.
+  Methodology: vtf-methodologies/executor/bugfix.md
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-read-api/t2-resource-endpoints 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T2-1 — src/vfobs/api/reads.py registers GET /workgraphs/<id>, /tasks/<id>, /tasks/<id>/events; all require Depends(get_read_principal)."
+  - "AC-T2-2 — GET /workgraphs/<id> returns {v:1, workgraph_id, vtf:{projected}, vfobs:{event_count,last_event_id,last_event_type,last_event_at}}. Composes VtfClient.get_workgraph + a T2-internal private _find_last_by_workgraph (ORDER BY id DESC LIMIT 1; T1 exposes no order param per plan §D3). last_event_id reads event.id (populated per F1). 404 iff vtf None AND vfobs has no events."
+  - "AC-T2-3 — GET /tasks/<id> equivalent task-scoped shape; same 404 logic via VtfClient.get_task + _find_last_by_task."
+  - "AC-T2-4 — GET /tasks/<id>/events paginated {v:1, task_id, events:[EventDTO], next_from_id:int|None}; from_id optional, limit default 100 capped 1000; next_from_id = last id + 1 iff a full page returned else None."
+  - "AC-T2-5 — Response DTOs in src/vfobs/api/dto.py (frozen): WorkgraphReadResponse, TaskReadResponse, TaskEventsResponse, EventDTO; EventDTO is Event.model_dump'able (includes id per F1) — no separate transform layer."
+  - "AC-T2-6 — Unit tests/unit/test_reads.py: each endpoint with stubbed VtfClient + InMemoryEventRepository + StaticPrincipalAuth — 200+shape, 404 missing, 401 no token."
+  - "AC-T2-7 — Integration tests/integration/test_reads_live.py vs real Postgres + fake-vtaskforge ASGI: seed 5 events, hit endpoints, assert payload matches seeded data."
+  - "AC-T2-8 — Contract tests/contract/test_reads_contract.py pins response shapes vs committed JSON fixture (WG1 event-schema fixture pattern)."
+  - "AC-T2-9 — Branch wg-vfobs-read-api/t2-resource-endpoints pushed."

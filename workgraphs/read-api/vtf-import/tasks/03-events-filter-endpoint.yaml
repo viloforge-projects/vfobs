@@ -1,0 +1,29 @@
+id: t_v2filt
+name: "vfobs WG2-T3 — GET /events?filter=... paginated filtered query"
+description: |
+  Global filtered event query. Builder pattern (EventQuery: URL
+  params → typed query object) over T1's find_filtered. Cursor
+  pagination by id (relies on F1 Event.id). Renders via T2's
+  EventDTO.
+
+  Full spec (authoritative — read this before claiming):
+  viloforge-projects/vfobs/workgraphs/read-api/tasks/03-events-filter-endpoint.md
+
+  Plan: plan.md §D4. Methodology: vtf-methodologies/executor/bugfix.md
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-read-api/t3-events-filter-endpoint 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T3-1 — GET /events registered with params workgraph_id, task_id, agent_id, type, type_namespace, org_id (default viloforge — extensibility hook), from_id, limit (default 100 capped 1000); requires Depends(get_read_principal)."
+  - "AC-T3-2 — _build_event_query(request)->EventQuery (Builder) maps params to a typed frozen EventQuery; unknown param→422; limit>1000→422; from_id<0→422."
+  - "AC-T3-3 — EventsFilterResponse DTO {v:1, events:[EventDTO], next_from_id:int|None, filter_applied:dict}; filter_applied reflects exactly the supplied non-default params."
+  - "AC-T3-4 — Calls EventRepository.find_filtered with the built EventQuery; renders via EventDTO; next_from_id = events[-1].id + 1 iff full page else None (id populated per F1)."
+  - "AC-T3-5 — Unit tests/unit/test_events_filter.py: builder happy + failure paths (bad limit/from_id/unknown param→422), filter_applied shape, next_from_id math."
+  - "AC-T3-6 — Integration tests/integration/test_events_filter_live.py: seed events across 3 workgraphs/4 types/2 agents; filter combos + from_id pagination assertions."
+  - "AC-T3-7 — Contract: extend tests/contract/test_reads_contract.py with EventsFilterResponse shape."
+  - "AC-T3-8 — Branch wg-vfobs-read-api/t3-events-filter-endpoint pushed."

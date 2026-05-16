@@ -1,0 +1,37 @@
+id: t_v2rqry
+name: "vfobs WG2-T1 — EventRepository read-method extension (find_by_* + cost_summary) + Event.id"
+description: |
+  Additive EventRepository extension: find_by_workgraph,
+  find_by_task, find_filtered, cost_summary + CostSummary model.
+  Includes verifier F1 (Event base gains a declared
+  id: int|None — frozen/model_dump-safe; _row_to_event maps it;
+  find_* results carry the DB id) and verifier F2 (cost_summary
+  counts the LATEST execution_summary per task — no rework
+  double-count, state-machine-agnostic). Pure data-access layer;
+  no HTTP wire.
+
+  Full spec (authoritative — read this before claiming):
+  viloforge-projects/vfobs/workgraphs/read-api/tasks/01-read-event-queries.md
+
+  Plan: plan.md §D3 (Event.id) + §D5 (cost de-dup)
+  Verifier: verifier-findings.md F1 + F2
+  Methodology: vtf-methodologies/executor/bugfix.md
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-read-api/t1-read-event-queries 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T1-1 — EventRepository ABC gains find_by_workgraph/find_by_task/find_filtered/cost_summary (plan §D3); existing store + get_by_id signatures unchanged."
+  - "AC-T1-2 — PostgresEventRepository: parameterized SQL (no interpolation); find_* order id ASC; cost_summary aggregation server-side."
+  - "AC-T1-3 — InMemoryEventRepository: list-comprehension impls matching Postgres behavior for the LSP parametrized test."
+  - "AC-T1-4 — CostSummary frozen Pydantic model (total_cost_usd: float, total_tokens: int, total_turns: int, task_count: int, sample_event_count: int)."
+  - "AC-T1-5 — find_filtered param precedence workgraph_id>task_id>agent_id>org_id>type/type_namespace>from_id>limit; limit default 100 hard-capped 1000; AND-combined."
+  - "AC-T1-6 — cost_summary requires exactly one of workgraph_id|agent_id (ValueError otherwise). De-dup (F2): per task_id count ONLY the execution_summary on the highest-id summary-bearing task.state_changed; no-summary tasks contribute nothing; missing inner field→0 (no NaN); task_count=contributing tasks; sample_event_count=post-dedup contributing events; a reworked task counted ONCE."
+  - "AC-T1-7 — Unit tests/unit/test_event_repository.py (extend): all four methods vs InMemory — empty→empty/zero, mixed events filter correctly, cost math correct incl. rework de-dup, ValueError on bad cost_summary params."
+  - "AC-T1-8 — Integration tests/integration/test_postgres_event_repository.py (extend): four methods vs real Postgres under the WG1 @pytest.fixture(params=[inmemory,postgres]) repo_under_test LSP pattern — both impls satisfy one behavioral contract."
+  - "AC-T1-9 — Branch wg-vfobs-read-api/t1-read-event-queries pushed."
+  - "AC-T1-10 — Event id propagation (F1): src/vfobs/events/base.py Event gains declared id: int|None=None; _row_to_event maps row[id]; every find_* result carries the DB id (Postgres SELECTed column, InMemory model_copy(update={id:eid})). Unit AC asserts find_* results have id populated AND Event.model_dump() includes 'id' (WG1-F1 regression guard). store()->int and get_by_id signatures unchanged."

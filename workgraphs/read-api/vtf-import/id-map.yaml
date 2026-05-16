@@ -1,0 +1,9 @@
+# Spec-file id  ->  vtaskforge-assigned task id
+# Imported 2026-05-16 into project r8PtFsSpnhMvF9GSF3Jw-,
+# workplan FvZfQ542l_IGaNba3oaFI. 6 tasks, 8 dependency links.
+t_v2adp1: DagoDo-4dYm8qVxHDDIlP   # T0 vtf-adapter-and-read-auth
+t_v2rqry: bCW_jWztUakZFwsXsPtZG   # T1 read-event-queries (F1+F2)
+t_v2endp: uS-CTw1iqVY4vo260T-FD   # T2 resource-endpoints
+t_v2filt: FV9d7-ya9FJvhkaZTQr_M   # T3 events-filter-endpoint
+t_v2cost: NMaQ_bnrxDL5Ben_HwSRZ   # T4 cost-aggregation
+t_v2scen: v9Q8Czh5IEKf0V1He9K-y   # T5 scenario-read-side

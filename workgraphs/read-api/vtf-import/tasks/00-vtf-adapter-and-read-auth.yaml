@@ -1,0 +1,36 @@
+id: t_v2adp1
+name: "vfobs WG2-T0 — Vtaskforge adapter + ReadAuth Strategy (vtf-token piggyback)"
+description: |
+  Adapter (VtfClient: vtaskforge HTTP/JSON → typed vfobs domain
+  models) + ReadAuth Strategy (vtf-token piggyback with 60s
+  sha256-prefix-keyed TTL cache). Foundation for every WG2 read
+  endpoint. The IngestAuth write-side Strategy from WG1 is
+  untouched; ReadAuth coexists.
+
+  Full spec (authoritative — read this before claiming):
+  viloforge-projects/vfobs/workgraphs/read-api/tasks/00-vtf-adapter-and-read-auth.md
+
+  Plan: viloforge-projects/vfobs/workgraphs/read-api/plan.md (D1, D2, D6)
+  Verifier: viloforge-projects/vfobs/workgraphs/read-api/verifier-findings.md
+  Engineering principles:
+  viloforge-platform/docs/engineering-principles.md v1.0
+  Methodology: vtf-methodologies/executor/bugfix.md
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-read-api/t0-vtf-adapter-and-read-auth 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T0-1 — src/vfobs/adapters/vtf.py defines VtfClient (httpx async): whoami(token)->WhoamiPrincipal, get_workgraph(id,token)->WorkgraphMetadata|None, get_task(id,token)->TaskMetadata|None. Base URL from Settings.vtaskforge_url; timeout from Settings.vtaskforge_timeout_seconds (default 5)."
+  - "AC-T0-2 — Pydantic models WhoamiPrincipal/WorkgraphMetadata/TaskMetadata in src/vfobs/adapters/dto.py project to vfobs-visible fields only (plan §D2); frozen=True."
+  - "AC-T0-3 — src/vfobs/api/read_auth.py: ReadAuth(ABC) async verify(token|None)->Principal (401 on failure); VtfTokenAuth uses sha256 hex-prefix-16 → dict+monotonic TTL cache (60s) → miss calls VtfClient.whoami; raw token NEVER logged or used as cache key."
+  - "AC-T0-4 — StaticPrincipalAuth(ReadAuth) test substitute returns a fixed principal regardless of token."
+  - "AC-T0-5 — create_app accepts read_auth=None and vtf_client=None kwargs (test-injection parity with WG1); lifespan resolves production VtfClient(settings)+VtfTokenAuth when not injected, using the existing main.py hasattr/is-None idiom (verifier F-adv4)."
+  - "AC-T0-6 — Settings gains vtaskforge_url: HttpUrl (no default) + vtaskforge_timeout_seconds: int = 5; existing fields unchanged."
+  - "AC-T0-7 — Unit tests/unit/test_vtf_adapter.py: VtfClient vs httpx MockTransport — whoami 200→Principal, 401→VtfAuthError; get_workgraph 200→projection, 404→None; get_task symmetric."
+  - "AC-T0-8 — Unit tests/unit/test_read_auth.py: cold miss calls whoami, warm hit does not, post-TTL re-fetch, cache key is sha256 prefix not raw token, upstream 401→401; StaticPrincipalAuth returns configured principal."
+  - "AC-T0-9 — Integration tests/integration/test_vtf_adapter_live.py: VtfClient hits a fake-vtaskforge ASGI app over real transport; verifies Authorization passthrough, URL composition, timeout config."
+  - "AC-T0-10 — Branch wg-vfobs-read-api/t0-vtf-adapter-and-read-auth pushed to viloforge/vfobs and a PR open. (Externally-grounded R1; verified by test_command.)"
