@@ -1,0 +1,32 @@
+id: t_ci_hook1
+name: "vfobs WG5m-T1 — vafi controller emission hook points (fail-safe) [GATED]"
+description: |
+  GATED: modifies the PRODUCTION vilosource/vafi controller loop —
+  needs explicit operator go-ahead + a stated vafi merge policy
+  before implementation (NOT covered by the vfobs standing
+  merge-auth). Adds emitter wiring + 4 hook points
+  (claim/heartbeat/turn/terminal); emission default-off +
+  fail-safe (never raises/blocks/slows the loop).
+
+  Full spec (authoritative — read before claiming):
+  viloforge-projects/vfobs/workgraphs/controller-instrumentation/tasks/01-controller-hook-points.md
+  Plan: ../plan.md §D2,§D3,§D6,§D7. Methodology: vtf-methodologies/executor/bugfix.md
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-ctrlinstr/t1-controller-hook-points 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T1-1 — vafi depends on vfobs_sdk; one Emitter via make_emitter(config) injected into Controller (DIP); NullEmitter when VFOBS_EMIT_ENABLED unset/false."
+  - "AC-T1-2 — task.claimed after work_source.claim() in _poll_and_execute."
+  - "AC-T1-3 — task.heartbeat each heartbeat_loop tick (bare, plan §D7)."
+  - "AC-T1-4 — harness.turn_started before _run_harness, harness.turn_completed after _parse_harness_output."
+  - "AC-T1-5 — task.state_changed terminal w/ execution_summary after execute()."
+  - "AC-T1-6 — FAIL-SAFE (load-bearing): with vfobs unreachable/5xx/slow, task still reaches normal terminal + loop not measurably slowed (no raise, no await-on-HTTP at any hook)."
+  - "AC-T1-7 — Unit: hooks call emit with right type+ids; a raising emitter does NOT propagate out of controller/invoker."
+  - "AC-T1-8 — Integration: claim→execute→terminal vs stub work source + BufferingEmitter yields the ordered sequence; same with always-raising emitter completes identically."
+  - "AC-T1-9 — existing vafi controller suite green (zero regression); vafi ruff/type gates clean."
+  - "AC-T1-10 — Branch wg-vfobs-ctrlinstr/t1-controller-hook-points pushed to vilosource/vafi + PR open."

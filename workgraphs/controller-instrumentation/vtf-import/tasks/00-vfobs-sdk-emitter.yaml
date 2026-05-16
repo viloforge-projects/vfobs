@@ -1,0 +1,32 @@
+id: t_ci_sdk0
+name: "vfobs WG5m-T0 — vfobs-sdk-python versioned fire-and-forget Emitter"
+description: |
+  Versioned typed Emitter SDK wrapping POST /events (NFR5: the
+  API ships with its SDK). Fire-and-forget, bounded queue, never
+  raises into the caller. NullEmitter when unconfigured (D-T0-1
+  degradable lineage). Greenfield viloforge/vfobs.
+
+  Full spec (authoritative — read before claiming):
+  viloforge-projects/vfobs/workgraphs/controller-instrumentation/tasks/00-vfobs-sdk-emitter.md
+  Plan: ../plan.md §D1,§D3,§D5. Verifier: ../verifier-findings.md
+  Principles: viloforge-platform/docs/engineering-principles.md
+  Methodology: vtf-methodologies/executor/bugfix.md
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-ctrlinstr/t0-vfobs-sdk-emitter 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T0-1 — sdk/python/ buildable package vfobs_sdk (pyproject mirrors vtf-sdk-python; pydantic>=2+httpx; __version__ semver)."
+  - "AC-T0-2 — Emitter(ABC).emit + HttpEmitter + NullEmitter + BufferingEmitter (Strategy); caller depends on the ABC."
+  - "AC-T0-3 — HttpEmitter.emit never raises; O(1) enqueue onto bounded deque (drop-oldest) drained by one bg task POSTing /events."
+  - "AC-T0-4 — per-emit hard timeout (default 2s) so a hung vfobs can't block the drain."
+  - "AC-T0-5 — first failure logs WARNING once; repeats rate-limited."
+  - "AC-T0-6 — make_emitter(settings) factory → NullEmitter unless enabled+configured; org_id/cluster_id passthrough."
+  - "AC-T0-7 — Unit: emit never raises on conn-refused/503/timeout/bad-payload; overflow drops oldest; Null is true no-op; factory selects Null when unconfigured."
+  - "AC-T0-8 — Integration: HttpEmitter vs real vfobs round-trips heartbeat+state_changed; on vfobs 5xx caller returns promptly, no raise."
+  - "AC-T0-9 — Contract: emitted JSON per event type validates vs WG1 tests/fixtures/event_schemas.v1.json (no ingest drift; V17). F-adv2: import WG1 models, do not vendor a copy."
+  - "AC-T0-10 — Branch wg-vfobs-ctrlinstr/t0-vfobs-sdk-emitter pushed to viloforge/vfobs + PR open."

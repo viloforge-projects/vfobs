@@ -1,0 +1,29 @@
+id: t_ci_watch2
+name: "vfobs WG5m-T2 — vfobs-watch live proactive stuck-detection CLI"
+description: |
+  CLI that polls the WG2 read API and applies the G2 anomaly
+  rules client-side (ApproachingTimeout/Stall/Crashed) — flags a
+  stuck executor BEFORE its timeout. Rules are pure, WG4-reusable
+  server-side. Independent root (parallel w/ T0); consumes the
+  already-live WG2 API. Greenfield viloforge/vfobs.
+
+  Full spec (authoritative — read before claiming):
+  viloforge-projects/vfobs/workgraphs/controller-instrumentation/tasks/02-live-watcher.md
+  Plan: ../plan.md §D4,§D7. Methodology: vtf-methodologies/executor/bugfix.md
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-ctrlinstr/t2-live-watcher 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T2-1 — vfobs-watch --task <id> [--workgraph][--interval][--task-timeout] polls WG2 read API, prints per-tick verdict (state, hb age, newest-harness age, elapsed vs timeout)."
+  - "AC-T2-2 — AnomalyRule(ABC).evaluate(state)->Verdict|None; ApproachingTimeout(>0.8*timeout,!terminal), Stall(hb fresh BUT no new harness.* > stall_s), Crashed(no hb > crash_s); thresholds from config (G2 defaults stall=60/crash=120/0.8)."
+  - "AC-T2-3 — first firing rule prints ALERT + exits non-zero; clean terminal exits zero."
+  - "AC-T2-4 — read via vfobs_sdk read helper/thin client; vtf-token bearer; read error degrades to logged tick, never crash."
+  - "AC-T2-5 — Unit: each rule fires/!fires incl. exact pi-hang (alive+no harness progress=Stall) + 0.79 vs 0.81 boundary."
+  - "AC-T2-6 — Integration vs real vfobs + seeded events: stalled→STALLED, near-timeout→APPROACHING_TIMEOUT, healthy→OK."
+  - "AC-T2-7 — vfobs-watch is a console_script entry point (installable, not a loose script)."
+  - "AC-T2-8 — Branch wg-vfobs-ctrlinstr/t2-live-watcher pushed + PR open."

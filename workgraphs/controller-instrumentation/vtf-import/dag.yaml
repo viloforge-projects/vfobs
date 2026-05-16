@@ -1,0 +1,12 @@
+tasks:
+  - id: t_ci_sdk0
+    depends_on: []
+  - id: t_ci_watch2
+    depends_on: []
+  - id: t_ci_hook1
+    depends_on:
+      - t_ci_sdk0
+  - id: t_ci_scen3
+    depends_on:
+      - t_ci_hook1
+      - t_ci_watch2

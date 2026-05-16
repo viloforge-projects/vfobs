@@ -1,0 +1,7 @@
+# Spec-file id  ->  vtaskforge-assigned task id
+# Imported 2026-05-16 into project r8PtFsSpnhMvF9GSF3Jw-,
+# workplan FvZfQ542l_IGaNba3oaFI. 4 tasks, 3 dependency links.
+t_ci_sdk0:   RK7prfryysknWX3wgLq-_   # T0 vfobs-sdk-emitter      (proceed)
+t_ci_hook1:  9dML2N0lg7XUV2-E8Uw7Y   # T1 controller-hook-points (GATED)
+t_ci_watch2: Kn4ViwaYK1i0ySk7y_x87   # T2 live-watcher           (proceed)
+t_ci_scen3:  K7EqBhiaojoPbRcF1B_R8   # T3 scenario-proactive     (GATED on T1)

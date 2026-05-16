@@ -1,0 +1,28 @@
+id: t_ci_scen3
+name: "vfobs WG5m-T3 — scenario: proactive stuck-detection end-to-end [GATED]"
+description: |
+  GATED on T1. Scenario proving a stalled executor run is flagged
+  by vfobs-watch BEFORE its timeout (the whole-point proof) +
+  fail-safe end-to-end + prepare.sh KUBECONFIG self-isolation
+  (carried WG2-T5 OF-1/SC-1). Fail-loud: not done unless green
+  e2e on kind.
+
+  Full spec (authoritative — read before claiming):
+  viloforge-projects/vfobs/workgraphs/controller-instrumentation/tasks/03-scenario-proactive-loop.md
+  Plan: ../plan.md. Methodology: vtf-methodologies/executor/bugfix.md SC-1/SC-2
+required_tags:
+  - executor
+agent_model: claude-opus-4-7
+judge: true
+isolation: sequential
+test_command:
+  command: |
+    git ls-remote --heads origin wg-vfobs-ctrlinstr/t3-scenario-proactive-loop 2>&1 | grep -q .
+acceptance_criteria:
+  - "AC-T3-1 — scenario harness runs an instrumented controller vs a SCRIPTED stub harness (healthy / stuck / near-timeout), emitting into the kind-deployed vfobs (WG2-T5 cluster+vtfstub, isolated KUBECONFIG per SC-1)."
+  - "AC-T3-2 — vfobs-watch on the STUCK task prints STALLED + exits non-zero BEFORE the configured timeout (the proactive proof; WG-AC4)."
+  - "AC-T3-3 — vfobs-watch on the HEALTHY task stays OK, exits zero at terminal."
+  - "AC-T3-4 — near-timeout task flagged APPROACHING_TIMEOUT before timeout."
+  - "AC-T3-5 — fail-safe e2e: vfobs scaled to 0/unreachable → instrumented controller still drives both stub tasks to normal terminal."
+  - "AC-T3-6 — docs/scenario-test-runbook.md gains a controller-instrumentation section + SC-1 isolated-KUBECONFIG reminder; prepare.sh self-isolates KUBECONFIG (OF-1 fix landed here)."
+  - "AC-T3-7 — Branch pushed + PR open. FAIL-LOUD: not done unless green e2e on the cluster (AC-T3-2 + AC-T3-5 not waivable)."
