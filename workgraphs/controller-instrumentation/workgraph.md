@@ -53,7 +53,6 @@ flowchart LR
     T3["03-scenario-proactive-loop<br/><i>executor</i>"]
 
     T0 --> T1
-    T0 --> T3
     T1 --> T3
     T2 --> T3
 ```
