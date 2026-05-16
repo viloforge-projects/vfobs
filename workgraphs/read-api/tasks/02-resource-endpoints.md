@@ -24,9 +24,14 @@ acceptance_criteria:
   - "AC-T2-2 — GET /workgraphs/<id> returns the response shape from
     plan §D4: {v:1, workgraph_id, vtf:{...projected metadata...},
     vfobs:{event_count, last_event_id, last_event_type,
-    last_event_at}}. Composes T0's VtfClient.get_workgraph + T1's
-    EventRepository.find_by_workgraph(limit=1, order=desc-or-via-from_id-trick).
-    404 if both vtf returns None AND vfobs has no events for the id."
+    last_event_at}}. Composes T0's VtfClient.get_workgraph + a
+    T2-internal private `_find_last_by_workgraph(workgraph_id)`
+    helper (T1's find_by_workgraph fixes `id ASC` and exposes no
+    order param — see plan §D3; the helper does
+    `... ORDER BY id DESC LIMIT 1`). `last_event_id` reads
+    `event.id`, which is populated per verifier F1 (Event gains a
+    declared `id`). 404 if vtf returns None AND vfobs has no events
+    for the id."
   - "AC-T2-3 — GET /tasks/<id> returns the equivalent task-scoped
     shape; same 404 logic against VtfClient.get_task + T1's
     find_by_task."

@@ -117,6 +117,20 @@ class CostSummary(BaseModel):
 parameterized SQL. `InMemoryEventRepository` implements them with
 list comprehensions for the LSP-parametrized test pattern.
 
+**Event `id` propagation (verifier F1).** WG1's `Event` (frozen)
+declares no `id`, and `_row_to_event` does not map it — WG1 only
+needed `store()→int` + `get_by_id(id)`. WG2's pagination
+(`next_from_id = events[-1].id + 1`) and `last_event_id` require
+the DB id on the returned object. Resolution: `Event` base gains a
+**declared** `id: int | None = None` (declared ⇒ survives
+`model_dump`, R13-safe — empirically verified; an *undeclared* key
+attached via `model_copy` is silently dropped by `model_dump`,
+the WG1-F1 class). `_row_to_event` maps `row["id"]`; `find_*`
+results carry `id` (Postgres via the SELECTed column, InMemory via
+`model_copy(update={"id": eid})`). The write path is unchanged —
+stored events keep `id=None`; the DB/counter assigns; reads
+reconstruct with `id`.
+
 ## D4 — Endpoint shapes (T2, T3, T4)
 
 Following DESIGN §E. JSON response bodies are typed Pydantic
@@ -211,20 +225,36 @@ vs `CostAggregationStrategy.by_agent(id)` — both produce
 
 ## D5 — Cost computation discipline
 
-`cost_summary` aggregates over `task.state_changed` events whose
-`data.execution_summary` is not null AND `data.to_status` is a
-terminal status (`done`, `failed`, etc.). Logic in repository, not
-in the endpoint layer, so the LSP test exercises it.
+`cost_summary` counts **one `execution_summary` per `task_id`: the
+one on the highest-`id` `task.state_changed` event that carries an
+`execution_summary`** (verifier F2 de-dup discipline). Logic in
+repository, not the endpoint layer, so the LSP test exercises it.
 
-SQL approach (Postgres impl): `SELECT
-sum((data->'execution_summary'->>'cost_usd')::numeric),
-sum((data->'execution_summary'->>'total_tokens')::int), ...
-FROM vfobs.events WHERE type = 'task.state_changed' AND
-data ? 'execution_summary' AND (data->'execution_summary')
-IS NOT NULL AND <workgraph_id|agent_id filter>`. NULL-tolerant —
-missing execution_summary contributes 0.
+**Why de-dup, not "sum every event" or "filter terminal `to_status`".**
+DESIGN G8 says `execution_summary` is produced on task-*completion*
+events. Under judge-driven rework a task can complete an executor
+run more than once, and WG5 (which actually emits these events)
+does not exist yet — so the per-task emission cardinality is not
+guaranteed to be 1. Summing every event double-counts cost across
+rework; filtering on a terminal `to_status` set both still admits
+multiple terminal-ish transitions *and* forces vfobs to hardcode
+vtaskforge's state machine. Taking the latest summary per task is
+correct for cardinality 1 or N, needs no state-machine coupling,
+and matches WG-AC5's intent (cost of the workgraph, not the sum of
+all rework attempts).
 
-In-memory: same logic in Python.
+SQL approach (Postgres impl): a `DISTINCT ON (task_id) ... ORDER BY
+task_id, id DESC` subquery selects the latest summary-bearing
+`task.state_changed` row per task within the
+`<workgraph_id|agent_id>` filter, then the outer query
+`SUM`s `cost_usd`/`total_tokens`/`num_turns` and counts rows.
+NULL-tolerant — a missing field inside an `execution_summary`
+contributes 0; a task with no summary-bearing event contributes
+nothing. `task_count` = number of contributing tasks;
+`sample_event_count` = number of (post-dedup) contributing events.
+
+In-memory: group summary-bearing `task.state_changed` by `task_id`,
+keep the entry with the max stored `id`, then reduce.
 
 ## D6 — Read auth applies to every WG2 endpoint
 
@@ -262,10 +292,13 @@ and the cost is negligible.
   at v2.
 - **MQ2.** The 60s whoami cache TTL is arbitrary; empirical
   validation in WG2 retro.
-- **MQ3.** D5's "ignore tasks without execution_summary" silently
-  excludes in-flight tasks from cost rollups. Document in the
-  response body? Or let consumers infer from `task_count vs
-  sample_event_count` discrepancy?
+- **MQ3.** *(Resolved by verifier F2.)* D5 now counts the latest
+  `execution_summary` per task; in-flight tasks (no summary-bearing
+  event) contribute nothing by construction. `task_count` is the
+  contributing-task count, so consumers still see how many tasks
+  fed the rollup. Remaining retro question: should the response
+  also expose a `tasks_without_summary` count for operator clarity?
+  Defer to WG2 retro / v2.
 
 # References
 

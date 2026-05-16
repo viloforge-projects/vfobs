@@ -123,10 +123,12 @@ for query construction. T5 closes the loop.
 - WG-AC4 — vtf-token piggyback works (a valid vtf token authenticates
   to read endpoints; an invalid one returns 401; an unauthenticated
   request returns 401).
-- WG-AC5 — Cost rollup at the workgraph level sums every
-  task.state_changed event with `data.execution_summary.cost_usd`
-  set, ignoring tasks that haven't produced an execution_summary
-  yet (no NaN, no errors).
+- WG-AC5 — Cost rollup at the workgraph level sums the **latest
+  execution_summary per task** (the one on the highest-id
+  summary-bearing `task.state_changed` event — verifier F2 de-dup),
+  ignoring tasks that haven't produced an execution_summary yet and
+  counting a reworked task once (no double-count, no NaN, no
+  errors).
 - WG-AC6 — vtaskforge project shows the 6 WG2 task records done.
 
 # Cross-WG dependency

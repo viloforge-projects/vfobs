@@ -225,9 +225,11 @@ def create_app(
 @asynccontextmanager
 async def _lifespan(app):
     ...
-    if not getattr(app.state, "vtf_client", None):
+    # F-adv4: match the existing main.py:20-23 idiom (hasattr/is None),
+    # not getattr-with-default, so the test-injection parity is exact.
+    if not hasattr(app.state, "vtf_client") or app.state.vtf_client is None:
         app.state.vtf_client = VtfClient(app.state.settings)
-    if not getattr(app.state, "read_auth", None):
+    if not hasattr(app.state, "read_auth") or app.state.read_auth is None:
         app.state.read_auth = VtfTokenAuth(app.state.vtf_client)
     try:
         yield

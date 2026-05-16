@@ -35,11 +35,23 @@ acceptance_criteria:
     > from_id > limit. Limit defaults to 100, hard-capped at 1000.
     All params are AND-combined."
   - "AC-T1-6 — cost_summary requires exactly one of workgraph_id or
-    agent_id (raises ValueError if both or neither). Aggregates
-    over task.state_changed events whose data.execution_summary is
-    present; missing execution_summary contributes 0; task_count
-    is the COUNT(DISTINCT task_id) of contributing events;
-    sample_event_count is the bare count of contributing events."
+    agent_id (raises ValueError if both or neither). De-dup
+    discipline (verifier F2): for each task_id, count ONLY the
+    execution_summary on the highest-id task.state_changed event
+    that carries one; tasks with no summary-bearing event
+    contribute nothing; a missing field inside an execution_summary
+    contributes 0 (no NaN). task_count = number of contributing
+    tasks; sample_event_count = number of (post-dedup) contributing
+    events. A task with two summary-bearing state_changed events
+    (rework) is counted ONCE (the later id wins)."
+  - "AC-T1-10 — Event id propagation (verifier F1): src/vfobs/events/base.py
+    Event gains a declared `id: int | None = None`;
+    _row_to_event maps row['id']; every find_* result carries the
+    DB id (Postgres from the SELECTed column, InMemory via
+    model_copy(update={'id': eid})). Unit AC asserts find_* results
+    have id populated AND that Event.model_dump() includes 'id'
+    (regression guard for the WG1-F1 silent-drop class). Existing
+    store()->int and get_by_id signatures unchanged."
   - "AC-T1-7 — Unit: tests/unit/test_event_repository.py (extend)
     covers all four methods against InMemoryEventRepository:
     empty store returns empty/zero, mixed events filter correctly,
@@ -59,14 +71,18 @@ acceptance_criteria:
 
 ## Files touched
 
+- `src/vfobs/events/base.py` (modify — add declared
+  `id: int | None = None` to the frozen Event base; verifier F1)
 - `src/vfobs/repositories/event_repository.py` (modify — extend ABC
-  + both impls + add CostSummary)
+  + both impls + add CostSummary + map `id` in `_row_to_event`)
 - `tests/unit/test_event_repository.py` (modify — extend)
 - `tests/integration/test_postgres_event_repository.py` (modify —
   extend)
 
 (NOT touched: any HTTP layer, any auth, any adapter. T1 is pure
-data-access layer extension.)
+data-access layer extension. The `Event.id` field is additive and
+frozen-safe; write-path callers are unaffected — stored events keep
+`id=None`, the DB/counter assigns, reads reconstruct with `id`.)
 
 ## Implementation sketch
 
@@ -103,19 +119,29 @@ _FIND_BY_WORKGRAPH = sa.text("""
 # All params are AND-combined.
 
 _COST_BY_WORKGRAPH = sa.text("""
+    WITH latest AS (
+      SELECT DISTINCT ON (task_id)
+             task_id,
+             data->'execution_summary' AS es
+      FROM vfobs.events
+      WHERE type = 'task.state_changed'
+        AND data ? 'execution_summary'
+        AND data->'execution_summary' IS NOT NULL
+        AND data->'execution_summary' != 'null'::jsonb
+        AND workgraph_id = :workgraph_id
+      ORDER BY task_id, id DESC          -- latest summary per task (F2)
+    )
     SELECT
-      COALESCE(SUM((data->'execution_summary'->>'cost_usd')::numeric), 0)::float AS total_cost_usd,
-      COALESCE(SUM((data->'execution_summary'->>'total_tokens')::int), 0) AS total_tokens,
-      COALESCE(SUM((data->'execution_summary'->>'num_turns')::int), 0) AS total_turns,
-      COUNT(DISTINCT task_id) AS task_count,
+      COALESCE(SUM((es->>'cost_usd')::numeric), 0)::float AS total_cost_usd,
+      COALESCE(SUM((es->>'total_tokens')::int), 0) AS total_tokens,
+      COALESCE(SUM((es->>'num_turns')::int), 0) AS total_turns,
+      COUNT(*) AS task_count,
       COUNT(*) AS sample_event_count
-    FROM vfobs.events
-    WHERE type = 'task.state_changed'
-      AND data ? 'execution_summary'
-      AND data->'execution_summary' IS NOT NULL
-      AND data->'execution_summary' != 'null'::jsonb
-      AND workgraph_id = :workgraph_id
+    FROM latest
 """)
+-- task_count == sample_event_count by construction (one row per
+-- contributing task post-dedup); both kept in CostSummary for
+-- consumer clarity + parity with the agent-scoped query.
 ```
 
 (R13: every JSONB path traversal works on declared
@@ -130,31 +156,34 @@ async def find_by_workgraph(self, workgraph_id, *, from_id=None, limit=100):
     for eid, ev in sorted(self._events.items()):
         if ev.workgraph_id != workgraph_id: continue
         if from_id is not None and eid < from_id: continue
-        out.append(ev)
+        out.append(ev.model_copy(update={"id": eid}))   # F1: attach DB id
         if len(out) >= min(limit, 1000): break
     return out
+# find_by_task / find_filtered attach id the same way.
 
 async def cost_summary(self, *, workgraph_id=None, agent_id=None):
     if (workgraph_id is None) == (agent_id is None):
         raise ValueError("cost_summary requires exactly one of workgraph_id or agent_id")
-    total_cost, total_tokens, total_turns = 0.0, 0, 0
-    task_ids: set[str] = set()
-    sample = 0
-    for ev in self._events.values():
+    # F2: keep the highest-id summary-bearing state_changed per task.
+    latest: dict[str, tuple[int, "ExecutionSummary"]] = {}
+    for eid, ev in self._events.items():
         if ev.type != "task.state_changed": continue
         if workgraph_id is not None and ev.workgraph_id != workgraph_id: continue
         if agent_id is not None and ev.agent_id != agent_id: continue
         es = ev.data.execution_summary
-        if es is None: continue
+        if es is None or ev.task_id is None: continue
+        cur = latest.get(ev.task_id)
+        if cur is None or eid > cur[0]:
+            latest[ev.task_id] = (eid, es)
+    total_cost, total_tokens, total_turns = 0.0, 0, 0
+    for _eid, es in latest.values():
         if es.cost_usd is not None: total_cost += es.cost_usd
         if es.total_tokens is not None: total_tokens += es.total_tokens
         if es.num_turns is not None: total_turns += es.num_turns
-        if ev.task_id is not None: task_ids.add(ev.task_id)
-        sample += 1
     return CostSummary(
         total_cost_usd=total_cost, total_tokens=total_tokens,
-        total_turns=total_turns, task_count=len(task_ids),
-        sample_event_count=sample,
+        total_turns=total_turns, task_count=len(latest),
+        sample_event_count=len(latest),
     )
 ```
 
